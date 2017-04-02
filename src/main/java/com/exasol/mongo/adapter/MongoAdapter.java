@@ -104,6 +104,7 @@ public class MongoAdapter {
             arguments.add("'" + properties.getMongoDB() + "'");
             arguments.add("'" + tableName + "'");
             arguments.add("'" + collectionMapping.getJsonMappingSpec() + "'");
+            arguments.add(Integer.toString(properties.getMaxResultRows()));
 
             List<String> emitColumns = new ArrayList<>();
             for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
@@ -140,7 +141,7 @@ public class MongoAdapter {
             } finally {
                 cursor.close();
             }
-        } else { // MAPPED
+        } else {  // MAPPED
             MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
             for (MongoCollectionMapping collectionMapping : mapping.getCollectionMappings()) {
                 List<ColumnMetadata> columns = new ArrayList<>();
@@ -165,6 +166,18 @@ public class MongoAdapter {
         switch (mongoType) {
             case STRING:
                 return DataType.createVarChar(2000000, DataType.ExaCharset.UTF8);
+            case LONG:
+                return DataType.createDecimal(36,0);
+            case DOUBLE:
+                return DataType.createDouble();
+            case OBJECTID:
+                return DataType.createVarChar(24, DataType.ExaCharset.UTF8);
+            case BOOLEAN:
+                return DataType.createBool();
+            case DATE:
+                return DataType.createVarChar(100, DataType.ExaCharset.UTF8); // TODO
+            case INTEGER:  // 32 bit integer
+                return DataType.createDecimal(10,0);
             default:
                 throw new RuntimeException("Not yet implemented");  // TODO
         }

@@ -3,6 +3,7 @@ package com.exasol.mongo.scriptclasses;
 
 import com.exasol.ExaIterator;
 import com.exasol.ExaMetadata;
+import com.exasol.adapter.AdapterException;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoMappingParser;
 import com.mongodb.MongoClient;
@@ -23,13 +24,15 @@ public class ReadCollectionMapped {
         String db = iter.getString("db");
         String collectionName = iter.getString("collection");
         List<MongoColumnMapping> columnsMapping = MongoMappingParser.parseColumnMappings(iter.getString("columnmapping")); // parseColumnSpec(iter.getString("columnspec"));
+        int maxRows = iter.getInteger("maxrows");
+
 
         MongoClient mongoClient = new MongoClient(host , port);
         MongoDatabase database = mongoClient.getDatabase(db);
         MongoCollection<Document> collection = database.getCollection(collectionName);
 
         Object row[] = new Object[columnsMapping.size()];
-        MongoCursor<Document> cursor = collection.find().iterator();
+        MongoCursor<Document> cursor = collection.find().limit(maxRows).iterator();
         try {
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
@@ -44,24 +47,28 @@ public class ReadCollectionMapped {
         }
     }
 
-    private static Object getFieldByType(Document doc, String name, MongoColumnMapping.MongoType type) {
-        switch (type) {
-            case STRING:
-                return doc.getString(name);
-            case LONG:
-                return doc.getLong(name);
-            case BOOLEAN:
-                return doc.getBoolean(name);
-            case INTEGER:
-                return doc.getInteger(name);
-            case DATE:
-                return doc.getDate(name);
-            case DOUBLE:
-                return doc.getDouble(name);
-            case OBJECTID:
-                return doc.getObjectId(name).toString();
-            default:
-                throw new RuntimeException("Invalid MongoDB type " + type + ". Should never happen.");
+    private static Object getFieldByType(Document doc, String jsonPath, MongoColumnMapping.MongoType type) throws AdapterException {
+        try {
+            switch (type) {
+                case STRING:
+                    return doc.getString(jsonPath);
+                case LONG:
+                    return doc.getLong(jsonPath);
+                case BOOLEAN:
+                    return doc.getBoolean(jsonPath);
+                case INTEGER:
+                    return doc.getInteger(jsonPath);
+                case DATE:
+                    return doc.getDate(jsonPath);
+                case DOUBLE:
+                    return doc.getDouble(jsonPath);
+                case OBJECTID:
+                    return doc.getObjectId(jsonPath).toString();
+                default:
+                    throw new RuntimeException("Invalid MongoDB type " + type + ". Should never happen.");
+            }
+        } catch (Exception e) {
+            throw new AdapterException("Invalid mapping: Path " + jsonPath + " cannot be interpreted as " + type + ": " + e.getMessage());
         }
     }
 
