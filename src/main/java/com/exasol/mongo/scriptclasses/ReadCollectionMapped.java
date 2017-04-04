@@ -1,9 +1,13 @@
 package com.exasol.mongo.scriptclasses;
 
 
+import com.exasol.ExaDataTypeException;
+import com.exasol.ExaIterationException;
 import com.exasol.ExaIterator;
 import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
+import com.exasol.jsonpath.JsonPathElement;
+import com.exasol.jsonpath.JsonPathFieldElement;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoMappingParser;
 import com.mongodb.MongoClient;
@@ -16,6 +20,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static com.mongodb.client.model.Projections.excludeId;
+import static com.mongodb.client.model.Projections.fields;
+import static com.mongodb.client.model.Projections.include;
+
 public class ReadCollectionMapped {
 
     public static void run(ExaMetadata meta, ExaIterator iter) throws Exception {
@@ -26,19 +34,36 @@ public class ReadCollectionMapped {
         List<MongoColumnMapping> columnsMapping = MongoMappingParser.parseColumnMappings(iter.getString("columnmapping")); // parseColumnSpec(iter.getString("columnspec"));
         int maxRows = iter.getInteger("maxrows");
 
+        readMapped(iter, host, port, db, collectionName, columnsMapping, maxRows);
+    }
 
+    static void readMapped(ExaIterator iter, String host, int port, String db, String collectionName, List<MongoColumnMapping> columnsMapping, int maxRows) throws AdapterException, ExaIterationException, ExaDataTypeException {
         MongoClient mongoClient = new MongoClient(host , port);
         MongoDatabase database = mongoClient.getDatabase(db);
         MongoCollection<Document> collection = database.getCollection(collectionName);
 
+        Document projection = new Document();
+        boolean includeId = false;
+        for (MongoColumnMapping col : columnsMapping) {
+            projection.append(col.getMongoJsonPath(), 1);
+            if (col.getMongoJsonPath().equals("_id")) {
+                includeId = true;
+            };
+        }
+        if (!includeId) {
+            projection.append("_id", 0);  // has to be excluded explicitly, otherwise is automatically included
+        }
+        MongoCursor<Document> cursor = collection.find()
+                .projection(projection)
+                .limit(maxRows)
+                .iterator();
         Object row[] = new Object[columnsMapping.size()];
-        MongoCursor<Document> cursor = collection.find().limit(maxRows).iterator();
         try {
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
                 int i = 0;
                 for (MongoColumnMapping col : columnsMapping) {
-                    row[i++] = getFieldByType(doc, col.getMongoJsonPath(), col.getType());
+                    row[i++] = getFieldByType(doc, col.getMongoJsonPathParsed(), col.getType());
                 }
                 iter.emit(row);
             }
@@ -47,28 +72,21 @@ public class ReadCollectionMapped {
         }
     }
 
-    private static Object getFieldByType(Document doc, String jsonPath, MongoColumnMapping.MongoType type) throws AdapterException {
+    private static Object getFieldByType(Document doc, List<JsonPathElement> jsonPath, MongoColumnMapping.MongoType type) throws AdapterException {
         try {
-            switch (type) {
-                case STRING:
-                    return doc.getString(jsonPath);
-                case LONG:
-                    return doc.getLong(jsonPath);
-                case BOOLEAN:
-                    return doc.getBoolean(jsonPath);
-                case INTEGER:
-                    return doc.getInteger(jsonPath);
-                case DATE:
-                    return doc.getDate(jsonPath);
-                case DOUBLE:
-                    return doc.getDouble(jsonPath);
-                case OBJECTID:
-                    return doc.getObjectId(jsonPath).toString();
-                default:
-                    throw new RuntimeException("Invalid MongoDB type " + type + ". Should never happen.");
+            if (jsonPath.size() == 1) {
+                assert(jsonPath.get(0).getType() == JsonPathElement.Type.FIELD);
+                return doc.get(((JsonPathFieldElement)jsonPath.get(0)).getFieldName(), type.getClazz());
+            } else {
+                for (int i = 0; i < jsonPath.size() - 1; i++) {
+                    JsonPathElement element = jsonPath.get(i);
+                    assert(element.getType() == JsonPathElement.Type.FIELD);  // TODO Only field access supported - check in a nicer way!
+                    doc = doc.get(((JsonPathFieldElement)element).getFieldName(), Document.class);
+                }
+                return doc.get(((JsonPathFieldElement)jsonPath.get(jsonPath.size()-1)).getFieldName(), type.getClazz());
             }
         } catch (Exception e) {
-            throw new AdapterException("Invalid mapping: Path " + jsonPath + " cannot be interpreted as " + type + ": " + e.getMessage());
+            throw new AdapterException("Error when retrieving path " + jsonPath + " as type " + type + ": " + e.getMessage());
         }
     }
 

@@ -33,6 +33,7 @@ public class App
         public void apply(final Document document) {
             //System.out.println("testobject_name: " + document.getString("testobject_name"));
             System.out.println("buildconfig.Alias: " + document.get("buildconfig", Document.class).getString("Alias"));
+            System.out.println("jobs: " + document.get("jobs").toString());
             document.get("b");
         }
     };
@@ -40,26 +41,25 @@ public class App
     public static void main( String[] args )
     {
         MongoClient mongoClient = new MongoClient( "localhost" , 27017 );
-        MongoDatabase database = mongoClient.getDatabase("tests_database");
+        MongoDatabase database = mongoClient.getDatabase("test");  // tests_database
 
-        long start = LocalDateTime.of(2017,3,22,18,0).toEpochSecond(ZoneOffset.ofHours(0));
-        long end = LocalDateTime.of(2017,3,23,18,0).toEpochSecond(ZoneOffset.ofHours(0));
+        long start = LocalDateTime.of(2017,3,22,18,0).toEpochSecond(ZoneOffset.ofHours(0)); // 2017,3,22,18,0
+        long end = LocalDateTime.of(2017,3,23,18,0).toEpochSecond(ZoneOffset.ofHours(0));  // 2017,3,23,18,0
 
         MongoCollection<Document> testsets = database.getCollection("testsets");
         System.out.println("Testsets Count: " + testsets.count());
 
         // Nightly testsets
         testsets.find(
-                and(
-                        gte("time_created", start),
-                        gte("time_created", end),
-                        eq("nightly_wip", false)
-                ))
-                .projection(fields(include("buildconfig.Alias", "testobject_name"), excludeId()))
+                //and(
+                //        gte("time_created", start),
+                //        gte("time_created", end)
+                //        eq("nightly_wip", false)
+                //)
+                )
+                .projection(fields(include("buildconfig.Alias", "testobject_name", "jobs"), excludeId()))
                 .sort(Sorts.ascending("testobject_name"))
                 .forEach(printTestset);
-
         // Failed jobs
-
     }
 }

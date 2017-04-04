@@ -8,6 +8,7 @@ import com.exasol.adapter.json.ResponseJsonSerializer;
 import com.exasol.adapter.metadata.*;
 import com.exasol.adapter.request.*;
 import com.exasol.adapter.sql.SqlStatementSelect;
+import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
