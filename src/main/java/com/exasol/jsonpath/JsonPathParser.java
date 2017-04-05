@@ -18,12 +18,20 @@ public class JsonPathParser {
 		Matcher matcher = Pattern.compile(regex).matcher(jsonPathSpecification);
 		while (matcher.find()) {
 			if (matcher.group(1) != null) {
-				path.add(new JsonPathFieldElement(matcher.group(1)));
+				if (matcher.group(1).equals("$")) {
+					// root element. Root element is always implicitly added, we don't add an element for it
+				} else {
+					path.add(new JsonPathFieldElement(matcher.group(1)));
+				}
 			} else if (matcher.group(2) != null) {
 				path.add(new JsonPathListIndexElement(Long.parseLong(matcher.group(2))));
 			} else {
 				assert(matcher.group(3) != null);
-				path.add(new JsonPathFieldElement(matcher.group(3)));
+				if (matcher.group(3).equals("$")) {
+					// root element. Root element is always implicitly added, we don't add an element for it
+				} else {
+					path.add(new JsonPathFieldElement(matcher.group(3)));
+				}
 			}
 		}
 		return path;

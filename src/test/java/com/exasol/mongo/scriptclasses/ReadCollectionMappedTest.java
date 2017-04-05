@@ -3,6 +3,7 @@ package com.exasol.mongo.scriptclasses;
 import com.exasol.ExaDataTypeException;
 import com.exasol.ExaIterationException;
 import com.exasol.ExaIterator;
+import com.exasol.adapter.AdapterException;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoMappingParser;
 import com.google.common.collect.ImmutableList;
@@ -60,7 +61,7 @@ public class ReadCollectionMappedTest {
                 "          \"type\": \"double\"\n" +
                 "        },\n" +
                 "        {\n" +
-                "          \"jsonpath\": \"user\",\n" +
+                "          \"jsonpath\": \"$.user\",\n" +
                 "          \"columnName\": \"SUBMIT_USER\",\n" +
                 "          \"type\": \"string\"\n" +
                 "        },\n" +
@@ -68,6 +69,16 @@ public class ReadCollectionMappedTest {
                 "          \"jsonpath\": \"buildconfig.Alias\",\n" +
                 "          \"columnName\": \"BUILDCONFIG_ALIAS\",\n" +
                 "          \"type\": \"string\"\n" +
+                "        },\n" +
+                "        {\n" +
+                "          \"jsonpath\": \"buildconfig\",\n" +
+                "          \"columnName\": \"BUILDCONFIG_JSON\",\n" +
+                "          \"type\": \"document\"\n" +
+                "        },\n" +
+                "        {\n" +
+                "          \"jsonpath\": \"jobs\",\n" +
+                "          \"columnName\": \"JOBS\",\n" +
+                "          \"type\": \"array\"\n" +
                 "        }\n" +
                 "    ]";
         List<MongoColumnMapping> mapping = MongoMappingParser.parseColumnMappings(mappingSpec);

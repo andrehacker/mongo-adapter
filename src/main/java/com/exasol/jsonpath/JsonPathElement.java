@@ -7,5 +7,7 @@ public interface JsonPathElement {
 		LIST_INDEX
 	}
 
+	String toJsonPathString();
+
 	Type getType();
 }

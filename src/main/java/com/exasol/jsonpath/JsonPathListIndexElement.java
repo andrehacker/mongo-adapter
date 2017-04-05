@@ -14,6 +14,11 @@ public class JsonPathListIndexElement implements JsonPathElement {
 	}
 
 	@Override
+	public String toJsonPathString() {
+		return "[" + listIndex + "]";
+	}
+
+	@Override
 	public Type getType() {
 		return Type.LIST_INDEX;
 	}

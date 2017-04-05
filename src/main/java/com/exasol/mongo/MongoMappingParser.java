@@ -1,5 +1,6 @@
 package com.exasol.mongo;
 
+import com.exasol.adapter.AdapterException;
 import com.exasol.utils.JsonHelper;
 
 import javax.json.Json;
@@ -30,12 +31,12 @@ public class MongoMappingParser {
         return parseColumnMappings(getJsonArray(columnMappingsJson).getValuesAs(JsonObject.class));
     }
 
-    public static List<MongoColumnMapping> parseColumnMappings(List<JsonObject> columns) {
+    public static List<MongoColumnMapping> parseColumnMappings(List<JsonObject> columns) throws AdapterException {
         List<MongoColumnMapping> columnMappings = new ArrayList<>();
         for (JsonObject column : columns) {
             String jsonPath = column.getString("jsonpath");
             String columnName = column.getString("columnName", jsonPath);
-            MongoColumnMapping.MongoType mongoType = MongoColumnMapping.mongoTypeFromString(column.getString("type"));
+            MongoColumnMapping.MongoType mongoType = MongoColumnMapping.MongoType.fromString(column.getString("type"));
             columnMappings.add(new MongoColumnMapping(jsonPath, columnName, mongoType));
         }
         return columnMappings;

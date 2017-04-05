@@ -33,7 +33,7 @@ public class MongoMappingParserTest {
         assertEquals("comments",mapping.getCollectionMappings().get(0).getCollectionName());
         assertEquals("comments",mapping.getCollectionMappings().get(0).getTableName());
         assertEquals(2 ,mapping.getCollectionMappings().get(0).getColumnMappings().size());
-        assertEquals("author" ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getMongoJsonPath());
+        assertEquals("author" ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getJsonPath());
         assertEquals("author_renamed" ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getColumnName());
         assertEquals(MongoColumnMapping.MongoType.STRING ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getType());
     }

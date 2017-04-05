@@ -8,7 +8,6 @@ import com.exasol.adapter.json.ResponseJsonSerializer;
 import com.exasol.adapter.metadata.*;
 import com.exasol.adapter.request.*;
 import com.exasol.adapter.sql.SqlStatementSelect;
-import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
@@ -179,8 +178,12 @@ public class MongoAdapter {
                 return DataType.createVarChar(100, DataType.ExaCharset.UTF8); // TODO
             case INTEGER:  // 32 bit integer
                 return DataType.createDecimal(10,0);
+            case DOCUMENT:
+                return DataType.createVarChar(2000000, DataType.ExaCharset.UTF8);
+            case ARRAY:
+                return DataType.createVarChar(2000000, DataType.ExaCharset.UTF8);
             default:
-                throw new RuntimeException("Not yet implemented");  // TODO
+                throw new RuntimeException("No mongo type to exasol type mapping, should never happen: " + mongoType);  // TODO
         }
     }
 }

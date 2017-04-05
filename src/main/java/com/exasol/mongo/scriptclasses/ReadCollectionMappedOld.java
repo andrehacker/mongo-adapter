@@ -3,6 +3,7 @@ package com.exasol.mongo.scriptclasses;
 
 import com.exasol.ExaIterator;
 import com.exasol.ExaMetadata;
+import com.exasol.adapter.AdapterException;
 import com.exasol.mongo.MongoColumnMapping;
 import com.mongodb.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -34,7 +35,7 @@ public class ReadCollectionMappedOld {
                 Document doc = cursor.next();
                 int i = 0;
                 for (MongoColumnMapping col : columnsSpec) {
-                    row[i++] = getFieldByType(doc, col.getMongoJsonPath(), col.getType());
+                    row[i++] = getFieldByType(doc, col.getJsonPath(), col.getType());
                 }
                 iter.emit(row);
             }
@@ -64,13 +65,13 @@ public class ReadCollectionMappedOld {
         }
     }
 
-    private static List<MongoColumnMapping> parseColumnSpec(String columnSpec) {
+    private static List<MongoColumnMapping> parseColumnSpec(String columnSpec) throws AdapterException {
         List<MongoColumnMapping> columns = new ArrayList<>();
         for (String column : Arrays.asList(columnSpec.split(","))) {
             columns.add(new MongoColumnMapping(
                     column.split(":")[0],
                     column.split(":")[0],
-                    MongoColumnMapping.mongoTypeFromString(column.split(":")[1])));
+                    MongoColumnMapping.MongoType.fromString(column.split(":")[1])));
         }
         return columns;
     }

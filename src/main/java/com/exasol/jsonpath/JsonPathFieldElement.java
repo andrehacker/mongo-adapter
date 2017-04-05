@@ -14,6 +14,11 @@ public class JsonPathFieldElement implements JsonPathElement {
 	}
 
 	@Override
+	public String toJsonPathString() {
+		return fieldName;
+	}
+
+	@Override
 	public Type getType() {
 		return Type.FIELD;
 	}
