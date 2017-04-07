@@ -3,6 +3,7 @@ package com.exasol.mongo.adapter;
 import com.exasol.adapter.metadata.MetadataException;
 import com.exasol.adapter.metadata.SchemaMetadata;
 import com.exasol.adapter.metadata.SchemaMetadataInfo;
+import org.junit.Ignore;
 import org.junit.Test;
 
 
@@ -14,6 +15,7 @@ import java.util.Map;
 public class MongoAdapterTest
 {
 
+    @Ignore
     @Test
     public void testApp() throws Exception {
         Map<String, String> properties = Collections.unmodifiableMap(new HashMap<String, String>() {

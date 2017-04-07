@@ -14,6 +14,7 @@ public class MongoAdapterProperties {
     static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
     static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
     static final String PROP_MAPPING = "MAPPING";
+    static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
 
     private Map<String, String> properties;
 
@@ -43,7 +44,7 @@ public class MongoAdapterProperties {
         return Integer.parseInt(maxResultRows);
     }
 
-    public static enum MongoMappingMode {
+    public enum MongoMappingMode {
         JSON,   // Single column with whole document as json
         MAPPED
     }
@@ -57,6 +58,38 @@ public class MongoAdapterProperties {
         } else {
             throw new AdapterException("Unsupported Mode: " + mode);
         }
+    }
+
+    public static enum SchemaEnforcementLevel {
+
+        /**
+         * Ignore if fields do not exist or have a different type than specified in the mapping (i.e. emit null)
+         */
+        NONE,
+
+        /**
+         * If the field exists, the type must match the type specified in the mapping
+         */
+        CHECK_TYPE;
+
+        /**
+         * The fields (structure) defined in the mapping must exist for every document, and must have the specified type
+         */
+        // CHECK_TYPE_AND_STRUCTURE;
+
+
+        public static SchemaEnforcementLevel fromString(String schemaEnforcementLevel) throws AdapterException {
+            try {
+                return valueOf(SchemaEnforcementLevel.class, schemaEnforcementLevel.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new AdapterException("Unsupported Schema Enforcement Level defined: " + schemaEnforcementLevel);
+            }
+        }
+    }
+
+    public SchemaEnforcementLevel getSchemaEnforcementLevel() throws AdapterException {
+        String level = getProperty(PROP_MODE, SchemaEnforcementLevel.NONE.name());
+        return SchemaEnforcementLevel.fromString(level);
     }
 
     public String getMongoDB() {

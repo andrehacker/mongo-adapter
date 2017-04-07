@@ -29,7 +29,7 @@ public class MongoMappingParserTest {
                 "}";
         MongoDBMapping mapping = MongoMappingParser.parse(test);
         assertEquals(1,mapping.getCollectionMappings().size());
-        assertEquals("{\"collectionName\":\"comments\",\"columns\":[{\"jsonpath\":\"author\",\"columnName\":\"author_renamed\",\"type\":\"string\"},{\"jsonpath\":\"jobid\",\"type\":\"string\"}]}",mapping.getCollectionMappings().get(0).getJsonMappingSpec());
+        assertEquals("[{\"jsonpath\":\"author\",\"columnName\":\"author_renamed\",\"type\":\"string\"},{\"jsonpath\":\"jobid\",\"type\":\"string\"}]",mapping.getCollectionMappings().get(0).getJsonMappingSpec());
         assertEquals("comments",mapping.getCollectionMappings().get(0).getCollectionName());
         assertEquals("comments",mapping.getCollectionMappings().get(0).getTableName());
         assertEquals(2 ,mapping.getCollectionMappings().get(0).getColumnMappings().size());

@@ -3,11 +3,8 @@ package com.exasol.mongo.scriptclasses;
 import com.exasol.ExaDataTypeException;
 import com.exasol.ExaIterationException;
 import com.exasol.ExaIterator;
-import com.exasol.adapter.AdapterException;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoMappingParser;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.junit.Test;
 
 import java.math.BigDecimal;
@@ -17,7 +14,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel.NONE;
 
 
 public class ReadCollectionMappedTest {
@@ -66,24 +64,25 @@ public class ReadCollectionMappedTest {
                 "          \"type\": \"string\"\n" +
                 "        },\n" +
                 "        {\n" +
+                "          \"jsonpath\": \"jobs\",\n" +
+                "          \"columnName\": \"JOBS\",\n" +
+                "          \"type\": \"array\"\n" +
+                "        },\n" +
+                "        {\n" +
                 "          \"jsonpath\": \"buildconfig.Alias\",\n" +
                 "          \"columnName\": \"BUILDCONFIG_ALIAS\",\n" +
                 "          \"type\": \"string\"\n" +
                 "        },\n" +
                 "        {\n" +
-                "          \"jsonpath\": \"buildconfig\",\n" +
-                "          \"columnName\": \"BUILDCONFIG_JSON\",\n" +
+                "          \"jsonpath\": \"buildconfig.Configuration-Level\",\n" +
+                "          \"columnName\": \"BUILDCONFIG_CONFIGURATION_LEVEL\",\n" +
                 "          \"type\": \"document\"\n" +
-                "        },\n" +
-                "        {\n" +
-                "          \"jsonpath\": \"jobs\",\n" +
-                "          \"columnName\": \"JOBS\",\n" +
-                "          \"type\": \"array\"\n" +
                 "        }\n" +
                 "    ]";
         List<MongoColumnMapping> mapping = MongoMappingParser.parseColumnMappings(mappingSpec);
         DummyExaIterator iter = new DummyExaIterator();
-        ReadCollectionMapped.readMapped(iter, "localhost", 27017, "test", "testsets", mapping, 1000);
+        SchemaEnforcementLevel schemaEnforcementLevel = NONE;  // CHECK_TYPE
+        ReadCollectionMapped.readMapped(iter, "localhost", 27017, "test", "testsets", mapping, 1000, schemaEnforcementLevel);
 
         System.out.println("Emmited rows: ");
         for (List<Object> row : iter.getEmittedRows()) {

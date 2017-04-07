@@ -23,6 +23,11 @@ import org.bson.Document;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.exasol.jsonpath.JsonPathElement.Type.LIST_INDEX;
+
+/**
+ * TODO Mapping uses jsonpath, however, jsonpath is different in some aspects from mongodb dot notation. Maybe we should stay consistent somehow.
+ */
 public class MongoAdapter {
 
     public static String adapterCall(ExaMetadata meta, String input) throws Exception {
@@ -105,6 +110,7 @@ public class MongoAdapter {
             arguments.add("'" + tableName + "'");
             arguments.add("'" + collectionMapping.getJsonMappingSpec() + "'");
             arguments.add(Integer.toString(properties.getMaxResultRows()));
+            arguments.add("'" + properties.getSchemaEnforcementLevel().name() + "'");
 
             List<String> emitColumns = new ArrayList<>();
             for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
@@ -146,6 +152,9 @@ public class MongoAdapter {
             for (MongoCollectionMapping collectionMapping : mapping.getCollectionMappings()) {
                 List<ColumnMetadata> columns = new ArrayList<>();
                 for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
+                    if (columnMapping.getJsonPathParsed().stream().anyMatch(element -> element.getType() == LIST_INDEX)) {
+                        throw new AdapterException("Your mapping contains an array index, which is not yet supported.");
+                    }
                     columns.add(new ColumnMetadata(columnMapping.getColumnName(), "", mongoTypeToExasolType(columnMapping.getType()), true, false, "", ""));
                 }
                 tables.add(new TableMetadata(collectionMapping.getTableName(), "", columns, ""));
