@@ -51,11 +51,11 @@ public class App
 
         // Nightly testsets
         testsets.find(
-                //and(
-                //        gte("time_created", start),
-                //        gte("time_created", end)
-                //        eq("nightly_wip", false)
-                //)
+                and(
+                        gte("time_created", start),
+                        gte("time_created", end),
+                        eq("nightly_wip", false)
+                )
                 )
                 .projection(fields(include("buildconfig.Alias", "testobject_name", "jobs"), excludeId()))
                 .sort(Sorts.ascending("testobject_name"))

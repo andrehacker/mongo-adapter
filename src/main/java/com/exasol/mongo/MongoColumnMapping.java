@@ -44,8 +44,8 @@ public class MongoColumnMapping {
         INTEGER(true, Integer.class),
         LONG(true, Long.class),
         DOUBLE(true, Double.class),
-        OBJECTID(true, ObjectId.class),
         DATE(true, Date.class),
+        OBJECTID(true, ObjectId.class),
         DOCUMENT(false, String.class),  // will be retrieved as json string
         ARRAY(false, String.class);     // will be retrieved as json string
 

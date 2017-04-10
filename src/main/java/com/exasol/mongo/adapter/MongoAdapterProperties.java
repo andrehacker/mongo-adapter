@@ -39,8 +39,10 @@ public class MongoAdapterProperties {
         return Integer.parseInt(port);
     }
 
+    public static final int UNLIMITED_RESULT_ROWS = -1;
+
     public int getMaxResultRows() {
-        String maxResultRows = getProperty(PROP_MAX_RESULT_ROWS, "");
+        String maxResultRows = getProperty(PROP_MAX_RESULT_ROWS, Integer.toString(UNLIMITED_RESULT_ROWS));
         return Integer.parseInt(maxResultRows);
     }
 
@@ -60,7 +62,7 @@ public class MongoAdapterProperties {
         }
     }
 
-    public static enum SchemaEnforcementLevel {
+    public enum SchemaEnforcementLevel {
 
         /**
          * Ignore if fields do not exist or have a different type than specified in the mapping (i.e. emit null)
@@ -88,7 +90,7 @@ public class MongoAdapterProperties {
     }
 
     public SchemaEnforcementLevel getSchemaEnforcementLevel() throws AdapterException {
-        String level = getProperty(PROP_MODE, SchemaEnforcementLevel.NONE.name());
+        String level = getProperty(PROP_SCHEMA_ENFORCEMENT, SchemaEnforcementLevel.NONE.name());
         return SchemaEnforcementLevel.fromString(level);
     }
 

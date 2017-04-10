@@ -1,31 +1,32 @@
 package com.exasol.mongo.scriptclasses;
 
 
-import com.exasol.ExaDataTypeException;
-import com.exasol.ExaIterationException;
 import com.exasol.ExaIterator;
 import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
+import com.exasol.adapter.json.RequestJsonParser;
+import com.exasol.adapter.request.PushdownRequest;
+import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
-import com.exasol.mongo.MongoColumnMapping;
-import com.exasol.mongo.MongoMappingParser;
+import com.exasol.mongo.*;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
 import com.mongodb.MongoClient;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.util.JSON;
 import org.bson.Document;
+import org.bson.types.ObjectId;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
-import static com.exasol.mongo.adapter.MongoAdapterProperties.*;
-import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel.*;
-import static com.mongodb.client.model.Projections.fields;
-import static com.mongodb.client.model.Projections.include;
-import static java.util.stream.Collectors.joining;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel.CHECK_TYPE;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.UNLIMITED_RESULT_ROWS;
 
 /**
  * https://docs.mongodb.com/manual/core/document/#document-dot-notation
@@ -39,33 +40,48 @@ import static java.util.stream.Collectors.joining;
 public class ReadCollectionMapped {
 
     public static void run(ExaMetadata meta, ExaIterator iter) throws Exception {
-        String host = iter.getString("host");
-        int port = iter.getInteger("port");
-        String db = iter.getString("db");
-        String collectionName = iter.getString("collection");
-        List<MongoColumnMapping> columnsMapping = MongoMappingParser.parseColumnMappings(iter.getString("columnmapping")); // parseColumnSpec(iter.getString("columnspec"));
-        int maxRows = iter.getInteger("maxrows");
-        SchemaEnforcementLevel schemaEnforcementLevel = SchemaEnforcementLevel.fromString(iter.getString("schemaenforcementlevel"));
+        PushdownRequest request = (PushdownRequest) (new RequestJsonParser()).parseRequest(iter.getString("request"));
 
-        readMapped(iter, host, port, db, collectionName, columnsMapping, maxRows, schemaEnforcementLevel);
+        readMapped(iter, request);
     }
 
-    static void readMapped(ExaIterator iter, String host, int port, String db, String collectionName, List<MongoColumnMapping> columnsMapping, int maxRows, SchemaEnforcementLevel schemaEnforcementLevel) throws AdapterException, ExaIterationException, ExaDataTypeException {
+    static void readMapped(ExaIterator iter, PushdownRequest request) throws Exception {
+        MongoAdapterProperties properties = new MongoAdapterProperties(request.getSchemaMetadataInfo().getProperties());
+        String host = properties.getMongoHost();
+        int port = properties.getMongoPort();
+        String db = properties.getMongoDB();
+        SqlStatementSelect select = (SqlStatementSelect) request.getSelect();
+        MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
+        String tableName = select.getFromClause().getName();
+        MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
+        String collectionName = collectionMapping.getCollectionName();
+        SchemaEnforcementLevel schemaEnforcementLevel = SchemaEnforcementLevel.fromString(properties.getSchemaEnforcementLevel().name());
+        int maxRows = select.hasLimit() ? select.getLimit().getLimit() : properties.getMaxResultRows();
+
         MongoClient mongoClient = new MongoClient(host , port);
         MongoDatabase database = mongoClient.getDatabase(db);
         MongoCollection<Document> collection = database.getCollection(collectionName);
+        MongoFilterGeneratorVisitor filterGenerator = new MongoFilterGeneratorVisitor(collectionMapping.getColumnMappings());
 
-        Document projection = constructProjectionFromColumnMapping(columnsMapping);
-        MongoCursor<Document> cursor = collection.find()
-                .projection(projection)
-                .limit(maxRows)
-                .iterator();
-        Object row[] = new Object[columnsMapping.size()];
+        Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings());
+
+        FindIterable<Document> tempCursor = collection.find();
+        if (projection != null) {
+            tempCursor = tempCursor.projection(projection);
+        }
+        if (select.hasFilter()) {
+            tempCursor = tempCursor.filter(select.getWhereClause().accept(filterGenerator));
+        }
+        if (maxRows != UNLIMITED_RESULT_ROWS) {
+            tempCursor = tempCursor.limit(maxRows);
+        }
+        MongoCursor<Document> cursor = tempCursor.iterator();
+        Object row[] = new Object[collectionMapping.getColumnMappings().size()];
         try {
             while (cursor.hasNext()) {
                 Document doc = cursor.next();
                 int i = 0;
-                for (MongoColumnMapping col : columnsMapping) {
+                for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
                     row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                 }
                 iter.emit(row);
@@ -85,6 +101,10 @@ public class ReadCollectionMapped {
         boolean includeId = false;
         for (MongoColumnMapping col : columnsMapping) {
             List<JsonPathElement> path = col.getJsonPathParsed();
+            if (path.size() == 0) {
+                // root element requested, we need all data and thus no projection
+                return null;
+            }
             if (!highestLevelFields.contains(path.get(0))) {
                 highestLevelFields.add(path.get(0).toJsonPathString());
                 //String mongoProjection = path.stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";   // JsonPath could look like "$.fieldname", but projection should look like "fieldname"
@@ -121,14 +141,18 @@ public class ReadCollectionMapped {
                 }
                 element = ((JsonPathFieldElement) jsonPath.get(jsonPath.size() - 1));
             }
-            if (type.isPrimitive()) {
+            if (type == MongoColumnMapping.MongoType.OBJECTID) {
+                return doc.get(element.getFieldName(), ObjectId.class).toString();
+            } else if (type.isPrimitive()) {
                 return doc.get(element.getFieldName(), type.getClazz());
             } else {
                 // return as json representation
                 if (type == MongoColumnMapping.MongoType.DOCUMENT) {
-                    return doc.get(element.getFieldName(), Document.class).toJson();
+                    Document val = doc.get(element.getFieldName(), Document.class);
+                    return (val == null) ? null : val.toJson();
                 } else if (type == MongoColumnMapping.MongoType.ARRAY) {
-                    return JSON.serialize(doc.get(element.getFieldName(), List.class));
+                    List<?> val = doc.get(element.getFieldName(), List.class);
+                    return (val == null) ? null : JSON.serialize(val);
                 } else {
                     throw new RuntimeException("Unknown non-primitive mongo type, should never happen: " + type);
                 }

@@ -3,6 +3,7 @@ package com.exasol.mongo.scriptclasses;
 import com.exasol.ExaDataTypeException;
 import com.exasol.ExaIterationException;
 import com.exasol.ExaIterator;
+import com.exasol.adapter.request.PushdownRequest;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoMappingParser;
 import org.junit.Test;
@@ -82,7 +83,8 @@ public class ReadCollectionMappedTest {
         List<MongoColumnMapping> mapping = MongoMappingParser.parseColumnMappings(mappingSpec);
         DummyExaIterator iter = new DummyExaIterator();
         SchemaEnforcementLevel schemaEnforcementLevel = NONE;  // CHECK_TYPE
-        ReadCollectionMapped.readMapped(iter, "localhost", 27017, "test", "testsets", mapping, 1000, schemaEnforcementLevel);
+        PushdownRequest request = null;     // TODO
+        //ReadCollectionMapped.readMapped(iter, "localhost", 27017, "test", "testsets", mapping, 1000, schemaEnforcementLevel, "", request);
 
         System.out.println("Emmited rows: ");
         for (List<Object> row : iter.getEmittedRows()) {

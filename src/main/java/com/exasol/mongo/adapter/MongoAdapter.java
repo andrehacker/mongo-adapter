@@ -3,6 +3,9 @@ package com.exasol.mongo.adapter;
 import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.capabilities.Capabilities;
+import com.exasol.adapter.capabilities.LiteralCapability;
+import com.exasol.adapter.capabilities.MainCapability;
+import com.exasol.adapter.capabilities.PredicateCapability;
 import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.json.ResponseJsonSerializer;
 import com.exasol.adapter.metadata.*;
@@ -54,7 +57,7 @@ public class MongoAdapter {
                     result = handleGetCapabilities((GetCapabilitiesRequest)request);
                     break;
                 case PUSHDOWN:
-                    result = handlePushdownRequest((PushdownRequest)request, meta);
+                    result = handlePushdownRequest((PushdownRequest)request, meta, input);
                     break;
                 default:
                     throw new RuntimeException("Request Type not supported: " + request.getType());
@@ -83,14 +86,26 @@ public class MongoAdapter {
 
     private static String handleGetCapabilities(GetCapabilitiesRequest request) {
         Capabilities capabilities = new Capabilities();
+        capabilities.supportMainCapability(MainCapability.LIMIT);
+        capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
+        capabilities.supportPredicate(PredicateCapability.EQUAL);
+        capabilities.supportPredicate(PredicateCapability.LESS);
+        capabilities.supportPredicate(PredicateCapability.LESSEQUAL);
+        capabilities.supportLiteral(LiteralCapability.BOOL);
+        capabilities.supportLiteral(LiteralCapability.STRING);
+        capabilities.supportLiteral(LiteralCapability.DOUBLE);
+        // TODO DECIMAL is not fully supported, because mongo integers range only to 32bit. We should handle larger values somehow.
+        capabilities.supportLiteral(LiteralCapability.EXACTNUMERIC);
         return ResponseJsonSerializer.makeGetCapabilitiesResponse(capabilities);
     }
 
-    private static String handlePushdownRequest(PushdownRequest request, ExaMetadata meta) throws Exception {
+    private static String handlePushdownRequest(PushdownRequest request, ExaMetadata meta, String jsonRequest) throws Exception {
+        SqlStatementSelect select = (SqlStatementSelect)request.getSelect();
         MongoAdapterProperties properties = new MongoAdapterProperties(request.getSchemaMetadataInfo().getProperties());
-        String tableName = ((SqlStatementSelect)request.getSelect()).getFromClause().getName();
+        String tableName = select.getFromClause().getName();
         StringBuilder builder = new StringBuilder();
         if (properties.getMappingMode() == MongoAdapterProperties.MongoMappingMode.JSON) {
+            // TODO Use mapped here, with $ as only collection mapping
             List<String> arguments = new ArrayList<>();
             arguments.add("'" + properties.getMongoHost() + "'");
             arguments.add(Integer.toString(properties.getMongoPort()));
@@ -104,13 +119,7 @@ public class MongoAdapter {
             MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
             MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
             List<String> arguments = new ArrayList<>();
-            arguments.add("'" + properties.getMongoHost() + "'");
-            arguments.add(Integer.toString(properties.getMongoPort()));
-            arguments.add("'" + properties.getMongoDB() + "'");
-            arguments.add("'" + tableName + "'");
-            arguments.add("'" + collectionMapping.getJsonMappingSpec() + "'");
-            arguments.add(Integer.toString(properties.getMaxResultRows()));
-            arguments.add("'" + properties.getSchemaEnforcementLevel().name() + "'");
+            arguments.add("'" + jsonRequest.replace("'", "''") + "'");
 
             List<String> emitColumns = new ArrayList<>();
             for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
