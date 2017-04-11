@@ -13,6 +13,7 @@ import javax.json.JsonObjectBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -36,7 +37,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     // TODO Would be good to have a supertype SqlLiteral
-    private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_STRING);
+    private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_EXACTNUMERIC, SqlNodeType.LITERAL_STRING);
 
     @Override
     public Bson visit(SqlPredicateEqual sqlPredicateEqual) throws AdapterException {
@@ -165,6 +166,15 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
+    public Bson visit(SqlPredicateAnd sqlPredicateAnd) throws AdapterException {
+        List<Bson> predicates = new ArrayList<>();
+        for (SqlNode node : sqlPredicateAnd.getAndedPredicates()) {
+            predicates.add(node.accept(this));
+        }
+        return and(predicates);
+    }
+
+    @Override
     public Bson visit(SqlColumn sqlColumn) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
@@ -266,11 +276,6 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlOrderBy sqlOrderBy) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateAnd sqlPredicateAnd) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 

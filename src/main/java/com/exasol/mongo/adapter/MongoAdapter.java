@@ -86,6 +86,8 @@ public class MongoAdapter {
 
     private static String handleGetCapabilities(GetCapabilitiesRequest request) {
         Capabilities capabilities = new Capabilities();
+        // TODO Bug: AND is pushed down even though we
+        // TODO Bug: Could delete a schema containing an adapter script which was used in a virtual schema
         capabilities.supportMainCapability(MainCapability.LIMIT);
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
         capabilities.supportPredicate(PredicateCapability.EQUAL);
