@@ -9,7 +9,10 @@ import com.exasol.adapter.request.PushdownRequest;
 import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
-import com.exasol.mongo.*;
+import com.exasol.mongo.MongoCollectionMapping;
+import com.exasol.mongo.MongoColumnMapping;
+import com.exasol.mongo.MongoDBMapping;
+import com.exasol.mongo.MongoFilterGeneratorVisitor;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
 import com.mongodb.MongoClient;
 import com.mongodb.client.FindIterable;
@@ -24,6 +27,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.exasol.mongo.MongoColumnMapping.MongoType.DOCUMENT;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel.CHECK_TYPE;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.UNLIMITED_RESULT_ROWS;
@@ -41,7 +46,6 @@ public class ReadCollectionMapped {
 
     public static void run(ExaMetadata meta, ExaIterator iter) throws Exception {
         PushdownRequest request = (PushdownRequest) (new RequestJsonParser()).parseRequest(iter.getString("request"));
-
         readMapped(iter, request);
     }
 
@@ -51,14 +55,14 @@ public class ReadCollectionMapped {
         int port = properties.getMongoPort();
         String db = properties.getMongoDB();
         SqlStatementSelect select = (SqlStatementSelect) request.getSelect();
-        MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
+        MongoDBMapping mapping = (properties.getMappingMode() == MAPPED) ? properties.getMapping() : MongoDBMapping.constructDefaultMapping(request.getInvolvedTablesMetadata());
         String tableName = select.getFromClause().getName();
         MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
         String collectionName = collectionMapping.getCollectionName();
         SchemaEnforcementLevel schemaEnforcementLevel = SchemaEnforcementLevel.fromString(properties.getSchemaEnforcementLevel().name());
         int maxRows = select.hasLimit() ? select.getLimit().getLimit() : properties.getMaxResultRows();
 
-        MongoClient mongoClient = new MongoClient(host , port);
+        MongoClient mongoClient = new MongoClient(host, port);
         MongoDatabase database = mongoClient.getDatabase(db);
         MongoCollection<Document> collection = database.getCollection(collectionName);
         MongoFilterGeneratorVisitor filterGenerator = new MongoFilterGeneratorVisitor(collectionMapping.getColumnMappings());
@@ -107,7 +111,6 @@ public class ReadCollectionMapped {
             }
             if (!highestLevelFields.contains(path.get(0))) {
                 highestLevelFields.add(path.get(0).toJsonPathString());
-                //String mongoProjection = path.stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";   // JsonPath could look like "$.fieldname", but projection should look like "fieldname"
                 String mongoProjection = path.get(0).toJsonPathString();
                 projection.append(mongoProjection, 1);
                 if (mongoProjection.equals("_id")) {
@@ -122,6 +125,12 @@ public class ReadCollectionMapped {
     }
 
     private static Object getFieldByType(Document doc, List<JsonPathElement> jsonPath, MongoColumnMapping.MongoType type, SchemaEnforcementLevel schemaEnforcementLevel) throws AdapterException {
+        if (jsonPath.isEmpty()) {
+            if (type != DOCUMENT) {
+                throw new AdapterException("The root field '$' is of type DOCUMENT, but was specified as type " + type.name() + " in the mapping.");
+            }
+            return doc.toJson();
+        }
         try {
             JsonPathFieldElement element = (JsonPathFieldElement) jsonPath.get(0);
             if (jsonPath.size() > 1) {
@@ -147,7 +156,7 @@ public class ReadCollectionMapped {
                 return doc.get(element.getFieldName(), type.getClazz());
             } else {
                 // return as json representation
-                if (type == MongoColumnMapping.MongoType.DOCUMENT) {
+                if (type == DOCUMENT) {
                     Document val = doc.get(element.getFieldName(), Document.class);
                     return (val == null) ? null : val.toJson();
                 } else if (type == MongoColumnMapping.MongoType.ARRAY) {
@@ -164,7 +173,8 @@ public class ReadCollectionMapped {
                 return null;
             }
         } catch (Exception e) {
-            throw new RuntimeException("Unexpected error when retrieving path " + jsonPath + " as type " + type + ": " + e.getMessage(), e);
+            throw e;
+            //throw new RuntimeException("Unexpected error when retrieving path " + jsonPath + " as type " + type + ": " + e.getMessage(), e);
         }
     }
 

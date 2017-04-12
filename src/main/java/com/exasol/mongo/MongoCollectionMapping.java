@@ -8,13 +8,11 @@ public class MongoCollectionMapping {
     private String collectionName;
     private String tableName;
     private List<MongoColumnMapping> columnMappings;
-    private String jsonMappingSpec;
 
-    public MongoCollectionMapping(String collectionName, String tableName, List<MongoColumnMapping> columnMappings, String jsonMappingSpec) {
+    public MongoCollectionMapping(String collectionName, String tableName, List<MongoColumnMapping> columnMappings) {
         this.collectionName = collectionName;
         this.tableName = tableName;
         this.columnMappings = columnMappings;
-        this.jsonMappingSpec = jsonMappingSpec;
     }
 
     public String getCollectionName() {
@@ -27,9 +25,5 @@ public class MongoCollectionMapping {
 
     public List<MongoColumnMapping> getColumnMappings() {
         return columnMappings;
-    }
-
-    public String getJsonMappingSpec() {
-        return jsonMappingSpec;
     }
 }

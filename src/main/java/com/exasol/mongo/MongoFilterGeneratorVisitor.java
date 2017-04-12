@@ -3,6 +3,7 @@ package com.exasol.mongo;
 
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.sql.*;
+import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.utils.JsonHelper;
 import com.google.common.collect.ImmutableSet;
 import org.bson.conversions.Bson;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 import static com.mongodb.client.model.Filters.*;
+import static java.util.stream.Collectors.joining;
 
 public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
@@ -26,6 +28,9 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     public MongoFilterGeneratorVisitor(List<MongoColumnMapping> columnsMapping) {
         this.columnsMapping = columnsMapping;
     }
+
+    // TODO Would be good to have a supertype SqlLiteral
+    private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_EXACTNUMERIC, SqlNodeType.LITERAL_STRING);
 
     public static MongoColumnMapping getColumnMappingByName(List<MongoColumnMapping> columnsMapping, String columnName) {
         for (MongoColumnMapping mapping : columnsMapping) {
@@ -36,31 +41,17 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         throw new RuntimeException("Internal error: Could not find mapping for " + columnName);
     }
 
-    // TODO Would be good to have a supertype SqlLiteral
-    private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_EXACTNUMERIC, SqlNodeType.LITERAL_STRING);
-
-    @Override
-    public Bson visit(SqlPredicateEqual sqlPredicateEqual) throws AdapterException {
-        SqlColumn column;
-        SqlNode literal;
-        if (sqlPredicateEqual.getLeft().getType() == SqlNodeType.COLUMN) {
-            column = (SqlColumn) sqlPredicateEqual.getLeft();
-            literal = sqlPredicateEqual.getRight();
-        } else if (supportedLiterals.contains(sqlPredicateEqual.getLeft().getType())) {
-            if (!(sqlPredicateEqual.getRight().getType() == SqlNodeType.COLUMN)) {
-                throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
-            }
-            column = (SqlColumn) sqlPredicateEqual.getRight();
-            literal = sqlPredicateEqual.getLeft();
-        } else {
-            throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
-        }
-        String mongoField = getColumnMappingByName(columnsMapping, column.getName()).getJsonPath();
-        // TODO Handle nested paths!
-        if (mongoField.contains(".")) {
-            throw new AdapterException("Filters on nested fields are not yet supported");
-        }
-        return eq(mongoField, getLiteralValueForFilter(literal));
+    /**
+     * Given a column name in the virtual table, it returns the key to be used for a filter.
+     * If you want to filter a nested document value, e.g. artist.name, will return "artist.name",
+     * which matches documents having a document with key "artist" containing a field "name", and
+     * potentially other fields. There is also a way to search for an exact match, but this is not
+     * supported by the Adapter.
+     */
+    private String getMongoFilterKeyByColumnName(String columnName) {
+        MongoColumnMapping colMapping = getColumnMappingByName(columnsMapping, columnName);
+        // JsonPath could look like "$.fieldname", but projection should look like "fieldname"
+        return colMapping.getJsonPathParsed().stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";
     }
 
     private Object getLiteralValueForFilter(SqlNode literal) throws AdapterException {
@@ -106,6 +97,26 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
+    public Bson visit(SqlPredicateEqual sqlPredicateEqual) throws AdapterException {
+        SqlColumn column;
+        SqlNode literal;
+        if (sqlPredicateEqual.getLeft().getType() == SqlNodeType.COLUMN) {
+            column = (SqlColumn) sqlPredicateEqual.getLeft();
+            literal = sqlPredicateEqual.getRight();
+        } else if (supportedLiterals.contains(sqlPredicateEqual.getLeft().getType())) {
+            if (!(sqlPredicateEqual.getRight().getType() == SqlNodeType.COLUMN)) {
+                throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
+            }
+            column = (SqlColumn) sqlPredicateEqual.getRight();
+            literal = sqlPredicateEqual.getLeft();
+        } else {
+            throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
+        }
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        return eq(mongoFilterKey, getLiteralValueForFilter(literal));
+    }
+
+    @Override
     public Bson visit(SqlPredicateLess sqlPredicateLess) throws AdapterException {
         SqlColumn column;
         SqlNode literal;
@@ -123,15 +134,11 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         } else {
             throw new AdapterException("Unsupported predicate: " + sqlPredicateLess.toSimpleSql());
         }
-        String mongoField = getColumnMappingByName(columnsMapping, column.getName()).getJsonPath();
-        // TODO Handle nested paths!
-        if (mongoField.contains(".")) {
-            throw new AdapterException("Filters on nested fields are not yet supported");
-        }
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         if (!invert) {
-            return lt(mongoField, getLiteralValueForFilter(literal));
+            return lt(mongoFilterKey, getLiteralValueForFilter(literal));
         } else {
-            return gt(mongoField, getLiteralValueForFilter(literal));
+            return gt(mongoFilterKey, getLiteralValueForFilter(literal));
         }
     }
 
@@ -153,15 +160,11 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         } else {
             throw new AdapterException("Unsupported predicate: " + sqlPredicateLessEqual.toSimpleSql());
         }
-        String mongoField = getColumnMappingByName(columnsMapping, column.getName()).getJsonPath();
-        // TODO Handle nested paths!
-        if (mongoField.contains(".")) {
-            throw new AdapterException("Filters on nested fields are not yet supported");
-        }
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         if (!invert) {
-            return lte(mongoField, getLiteralValueForFilter(literal));
+            return lte(mongoFilterKey, getLiteralValueForFilter(literal));
         } else {
-            return gte(mongoField, getLiteralValueForFilter(literal));
+            return gte(mongoFilterKey, getLiteralValueForFilter(literal));
         }
     }
 

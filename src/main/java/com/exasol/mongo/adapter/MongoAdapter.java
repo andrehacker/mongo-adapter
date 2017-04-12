@@ -27,10 +27,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.exasol.jsonpath.JsonPathElement.Type.LIST_INDEX;
+import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 
-/**
- * TODO Mapping uses jsonpath, however, jsonpath is different in some aspects from mongodb dot notation. Maybe we should stay consistent somehow.
- */
 public class MongoAdapter {
 
     public static String adapterCall(ExaMetadata meta, String input) throws Exception {
@@ -86,8 +84,8 @@ public class MongoAdapter {
 
     private static String handleGetCapabilities(GetCapabilitiesRequest request) {
         Capabilities capabilities = new Capabilities();
-        // TODO Bug: AND is pushed down even though we
-        // TODO Bug: Could delete a schema containing an adapter script which was used in a virtual schema
+        // TODO Bug: AND is pushed down even though we didn't have the capability (ltt)
+        // TODO Bug: Could delete a schema containing an adapter script which was used in a virtual schema (ltt)
         capabilities.supportMainCapability(MainCapability.LIMIT);
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
         capabilities.supportPredicate(PredicateCapability.EQUAL);
@@ -106,34 +104,21 @@ public class MongoAdapter {
         MongoAdapterProperties properties = new MongoAdapterProperties(request.getSchemaMetadataInfo().getProperties());
         String tableName = select.getFromClause().getName();
         StringBuilder builder = new StringBuilder();
-        if (properties.getMappingMode() == MongoAdapterProperties.MongoMappingMode.JSON) {
-            // TODO Use mapped here, with $ as only collection mapping
-            List<String> arguments = new ArrayList<>();
-            arguments.add("'" + properties.getMongoHost() + "'");
-            arguments.add(Integer.toString(properties.getMongoPort()));
-            arguments.add("'" + properties.getMongoDB() + "'");
-            arguments.add("'" + tableName + "'");
-            arguments.add(Integer.toString(properties.getMaxResultRows()));
-            builder.append("select MONGO_ADAPTER.READ_COLLECTION_JSON(");
-            builder.append(Joiner.on(", ").join(arguments));
-            builder.append(")");
-        } else { // Mapped
-            MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
-            MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
-            List<String> arguments = new ArrayList<>();
-            arguments.add("'" + jsonRequest.replace("'", "''") + "'");
+        MongoDBMapping mapping = (properties.getMappingMode() == MAPPED) ? properties.getMapping() : MongoDBMapping.constructDefaultMapping(request.getInvolvedTablesMetadata());
+        MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
+        List<String> arguments = new ArrayList<>();
+        arguments.add("'" + jsonRequest.replace("'", "''") + "'");
 
-            List<String> emitColumns = new ArrayList<>();
-            for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
-                emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
-            }
-
-            builder.append("select MONGO_ADAPTER.READ_COLLECTION_MAPPED(");
-            builder.append(Joiner.on(", ").join(arguments));
-            builder.append(") emits (");
-            builder.append(Joiner.on(", ").join(emitColumns));
-            builder.append(")");
+        List<String> emitColumns = new ArrayList<>();
+        for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
+            emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
         }
+
+        builder.append("select MONGO_ADAPTER.READ_COLLECTION_MAPPED(");
+        builder.append(Joiner.on(", ").join(arguments));
+        builder.append(") emits (");
+        builder.append(Joiner.on(", ").join(emitColumns));
+        builder.append(")");
         return ResponseJsonSerializer.makePushdownResponse(builder.toString());
     }
 
@@ -159,7 +144,7 @@ public class MongoAdapter {
                 cursor.close();
             }
         } else {  // MAPPED
-            MongoDBMapping mapping = MongoMappingParser.parse(properties.getMapping());
+            MongoDBMapping mapping = properties.getMapping();
             for (MongoCollectionMapping collectionMapping : mapping.getCollectionMappings()) {
                 List<ColumnMetadata> columns = new ArrayList<>();
                 for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {

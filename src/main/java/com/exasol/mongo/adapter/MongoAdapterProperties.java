@@ -2,6 +2,8 @@ package com.exasol.mongo.adapter;
 
 
 import com.exasol.adapter.AdapterException;
+import com.exasol.mongo.MongoDBMapping;
+import com.exasol.mongo.MongoMappingParser;
 
 import java.util.Map;
 
@@ -102,8 +104,9 @@ public class MongoAdapterProperties {
         return getProperty(PROP_IGNORE_COLLECTION_CASE, "false").equalsIgnoreCase("true");
     }
 
-    public String getMapping() {
-        return getProperty(PROP_MAPPING, "");
+    public MongoDBMapping getMapping() throws Exception {
+        assert(getMappingMode() == MongoMappingMode.MAPPED);
+        return MongoMappingParser.parse(getProperty(PROP_MAPPING, ""));
     }
 
 }

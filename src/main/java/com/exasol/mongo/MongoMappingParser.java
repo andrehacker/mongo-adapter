@@ -13,7 +13,7 @@ import java.util.List;
 
 public class MongoMappingParser {
 
-    // TODO parse jsonpath correctly, including $.: https://github.com/EXASOL/hadoop-etl-udfs/blob/master/src/main/java/com/exasol/jsonpath/JsonPathParser.java
+    // TODO parse jsonpath correctly, including $. in https://github.com/EXASOL/hadoop-etl-udfs/blob/master/src/main/java/com/exasol/jsonpath/JsonPathParser.java
 
     public static MongoDBMapping parse(String json) throws Exception {
         List<MongoCollectionMapping> mappings = new ArrayList<>();
@@ -22,7 +22,7 @@ public class MongoMappingParser {
             String collectionName = table.getString("collectionName");
             String tableName = table.getString("tableName", collectionName);
             List<MongoColumnMapping> columnMappings = parseColumnMappings(table.getJsonArray("columns").getValuesAs(JsonObject.class));
-            mappings.add(new MongoCollectionMapping(collectionName, tableName, columnMappings, table.getJsonArray("columns").toString()));
+            mappings.add(new MongoCollectionMapping(collectionName, tableName, columnMappings));
         }
         return new MongoDBMapping(mappings);
     }

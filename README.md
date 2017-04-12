@@ -26,13 +26,6 @@ CREATE OR REPLACE JAVA SET SCRIPT READ_COLLECTION_MAPPED (request varchar(200000
 %jar /buckets/bfsdefault/mongo/mongo-adapter-1.0-SNAPSHOT.jar;
 %jar /buckets/bfsdefault/mongo/original-mongo-adapter-1.0-SNAPSHOT.jar;
 /
-
-
-CREATE OR REPLACE JAVA SET SCRIPT READ_COLLECTION_JSON (host varchar(200), port integer, db varchar(200), collection varchar(200), maxrows int) EMITS (json varchar(2000000)) AS
-%scriptclass com.exasol.mongo.scriptclasses.ReadCollectionJson;
-%jar /buckets/bfsdefault/mongo/mongo-adapter-1.0-SNAPSHOT.jar;
-%jar /buckets/bfsdefault/mongo/original-mongo-adapter-1.0-SNAPSHOT.jar;
-/
 ```
 
 ### Create Virtual Schema
