@@ -1,17 +1,37 @@
-# mongo-adapter
+# MongoDB Adapter For EXASOL Virtual Schemas
+
+This adapter let's you access MongoDB collections from a EXASOL virtual schema.
+
+The adapter has following features
+* Two different modes for accessing the data
+  - JSON mode, where each collection is mapped to a table with a single column containing the JSON representation of the documents
+  - MAPPED mode, where you can specify which fields of a document shall be mapped to columns in virtual tables.
 
 ## How To Deploy
 
-### Upload jars to bucket
+### 1. Prerequisites:
+* EXASOL >= 6.0 Advanced Edition or Free Small Business Edition
+* All EXASOL nodes must be able to connect to MongoDB
+* Java 8 and Maven
 
+### 2. Clone And Build
+
+First you have to clone the repository and build it:
 ```
-mvn clean package -DskipTests
+git clone https://github.com/andrehacker/mongo-adapter.git
+cd mongo-adapter/
+mvn clean -DskipTests package
+```
+
+### 2. Upload Jars To Bucket
+Now upload the resulting jars to a bucket of your choice. You have to adapt the port of the BucketFS (```1234```), the bucket name (```mongo```) and the write password (```write```).
+```
 curl -v -X PUT -T target/original-mongo-adapter-1.0-SNAPSHOT.jar http://w:write@localhost:1234/mongo/original-mongo-adapter-1.0-SNAPSHOT.jar
 curl -v -X PUT -T target/mongo-adapter-1.0-SNAPSHOT.jar http://w:write@localhost:1234/mongo/mongo-adapter-1.0-SNAPSHOT.jar
 ```
 
 ### Create Scripts in EXASOL
-
+Now run the following commands in EXASOL. You have to adapt the name of the bucketfs (```bfsdefault```) and bucket (```mongo```).
 ```sql
 CREATE SCHEMA IF NOT EXISTS MONGO_ADAPTER;
 
@@ -28,7 +48,12 @@ CREATE OR REPLACE JAVA SET SCRIPT READ_COLLECTION_MAPPED (request varchar(200000
 /
 ```
 
-### Create Virtual Schema
+## Example
+
+Now we are ready to create a virtual schema. The following example demonstrates the functionality.
+
+Assume we have two collections in MongoDB, with a typical document looking like follows:
+
 
 Json, for exploration:
 ```sql
@@ -203,4 +228,3 @@ CREATE VIRTUAL SCHEMA VS_MONGO_MAPPED using MONGO_ADAPTER.MONGO_ADAPTER with
 ]
 }';
 ```
-
