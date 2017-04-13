@@ -42,7 +42,7 @@ public class MongoMappingParser {
         return columnMappings;
     }
 
-    // TODO Make public available
+    // TODO COMMON Make public available
     private static JsonArray getJsonArray(String data) throws Exception {
         JsonReader jr = Json.createReader(new StringReader(data));
         JsonArray obj = jr.readArray();

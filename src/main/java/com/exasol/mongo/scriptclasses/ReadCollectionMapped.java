@@ -6,6 +6,9 @@ import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.request.PushdownRequest;
+import com.exasol.adapter.sql.AggregateFunction;
+import com.exasol.adapter.sql.SqlFunctionAggregate;
+import com.exasol.adapter.sql.SqlNodeType;
 import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
@@ -13,6 +16,7 @@ import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
 import com.exasol.mongo.MongoFilterGeneratorVisitor;
+import com.exasol.mongo.adapter.MongoAdapter;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
 import com.mongodb.MongoClient;
 import com.mongodb.client.FindIterable;
@@ -27,6 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.exasol.adapter.sql.AggregateFunction.*;
 import static com.exasol.mongo.MongoColumnMapping.MongoType.DOCUMENT;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
@@ -67,31 +72,36 @@ public class ReadCollectionMapped {
         MongoCollection<Document> collection = database.getCollection(collectionName);
         MongoFilterGeneratorVisitor filterGenerator = new MongoFilterGeneratorVisitor(collectionMapping.getColumnMappings());
 
-        Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings());
+        if (MongoAdapter.isCountStar(select.getSelectList())) {
+            long count = (select.hasFilter()) ? collection.count(select.getWhereClause().accept(filterGenerator)) : collection.count();
+            iter.emit(count);
+        } else {
+            Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings());
 
-        FindIterable<Document> tempCursor = collection.find();
-        if (projection != null) {
-            tempCursor = tempCursor.projection(projection);
-        }
-        if (select.hasFilter()) {
-            tempCursor = tempCursor.filter(select.getWhereClause().accept(filterGenerator));
-        }
-        if (maxRows != UNLIMITED_RESULT_ROWS) {
-            tempCursor = tempCursor.limit(maxRows);
-        }
-        MongoCursor<Document> cursor = tempCursor.iterator();
-        Object row[] = new Object[collectionMapping.getColumnMappings().size()];
-        try {
-            while (cursor.hasNext()) {
-                Document doc = cursor.next();
-                int i = 0;
-                for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
-                    row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
-                }
-                iter.emit(row);
+            FindIterable<Document> tempCursor = collection.find();
+            if (projection != null) {
+                tempCursor = tempCursor.projection(projection);
             }
-        } finally {
-            cursor.close();
+            if (select.hasFilter()) {
+                tempCursor = tempCursor.filter(select.getWhereClause().accept(filterGenerator));
+            }
+            if (maxRows != UNLIMITED_RESULT_ROWS) {
+                tempCursor = tempCursor.limit(maxRows);
+            }
+            MongoCursor<Document> cursor = tempCursor.iterator();
+            Object row[] = new Object[collectionMapping.getColumnMappings().size()];
+            try {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
+                    int i = 0;
+                    for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
+                        row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                    }
+                    iter.emit(row);
+                }
+            } finally {
+                cursor.close();
+            }
         }
     }
 

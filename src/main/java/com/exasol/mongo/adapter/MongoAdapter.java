@@ -2,14 +2,14 @@ package com.exasol.mongo.adapter;
 
 import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
-import com.exasol.adapter.capabilities.Capabilities;
-import com.exasol.adapter.capabilities.LiteralCapability;
-import com.exasol.adapter.capabilities.MainCapability;
-import com.exasol.adapter.capabilities.PredicateCapability;
+import com.exasol.adapter.capabilities.*;
 import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.json.ResponseJsonSerializer;
 import com.exasol.adapter.metadata.*;
 import com.exasol.adapter.request.*;
+import com.exasol.adapter.sql.SqlFunctionAggregate;
+import com.exasol.adapter.sql.SqlNodeType;
+import com.exasol.adapter.sql.SqlSelectList;
 import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
@@ -26,6 +26,7 @@ import org.bson.Document;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.exasol.adapter.sql.AggregateFunction.COUNT;
 import static com.exasol.jsonpath.JsonPathElement.Type.LIST_INDEX;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 
@@ -88,9 +89,20 @@ public class MongoAdapter {
         // TODO Bug: Could delete a schema containing an adapter script which was used in a virtual schema (ltt)
         capabilities.supportMainCapability(MainCapability.LIMIT);
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
+        capabilities.supportMainCapability(MainCapability.AGGREGATE_SINGLE_GROUP);
+        capabilities.supportMainCapability(MainCapability.SELECTLIST_EXPRESSIONS); // TODO COMMON: Problem: This is required for COUNT(*) pushdown, but I don't want to allow it for other expressions basically!
+        capabilities.supportAggregateFunction(AggregateFunctionCapability.COUNT_STAR);
+        capabilities.supportPredicate(PredicateCapability.AND);
+        capabilities.supportPredicate(PredicateCapability.OR);
+        capabilities.supportPredicate(PredicateCapability.NOT);
         capabilities.supportPredicate(PredicateCapability.EQUAL);
+        capabilities.supportPredicate(PredicateCapability.NOTEQUAL);
+        capabilities.supportPredicate(PredicateCapability.BETWEEN);
         capabilities.supportPredicate(PredicateCapability.LESS);
         capabilities.supportPredicate(PredicateCapability.LESSEQUAL);
+        capabilities.supportPredicate(PredicateCapability.IN_CONSTLIST);
+        capabilities.supportPredicate(PredicateCapability.IS_NULL);
+        capabilities.supportPredicate(PredicateCapability.IS_NOT_NULL);
         capabilities.supportLiteral(LiteralCapability.BOOL);
         capabilities.supportLiteral(LiteralCapability.STRING);
         capabilities.supportLiteral(LiteralCapability.DOUBLE);
@@ -110,8 +122,12 @@ public class MongoAdapter {
         arguments.add("'" + jsonRequest.replace("'", "''") + "'");
 
         List<String> emitColumns = new ArrayList<>();
-        for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
-            emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
+        if (isCountStar(select.getSelectList())) {
+            emitColumns.add("COUNT DECIMAL(36,0)");
+        } else {
+            for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
+                emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
+            }
         }
 
         builder.append("select MONGO_ADAPTER.READ_COLLECTION_MAPPED(");
@@ -122,6 +138,23 @@ public class MongoAdapter {
         return ResponseJsonSerializer.makePushdownResponse(builder.toString());
     }
 
+    public static boolean isCountStar(SqlSelectList selectList) throws AdapterException {
+        if (selectList.getExpressions() == null) {
+            return false;
+        } else {
+            if ((selectList.getExpressions().size() == 1) && (selectList.getExpressions().get(0).getType() == SqlNodeType.FUNCTION_AGGREGATE)) {
+                SqlFunctionAggregate aggFunction = (SqlFunctionAggregate) selectList.getExpressions().get(0);
+                if (aggFunction.getFunction() == COUNT && aggFunction.getArguments().size() == 0) {
+                    return true;
+                } else {
+                    throw new AdapterException("Unsupported pushdown of aggregate function in select list: " + selectList.toSimpleSql());
+                }
+            } else {
+                throw new AdapterException("Unsupported pushdown of select list: " + selectList.toSimpleSql());
+            }
+        }
+    }
+
     public static SchemaMetadata readMetadata(SchemaMetadataInfo schemaMetadataInfo, ExaMetadata meta) throws Exception {
         MongoAdapterProperties properties = new MongoAdapterProperties(schemaMetadataInfo.getProperties());
         String host = properties.getMongoHost();
@@ -129,7 +162,7 @@ public class MongoAdapter {
         String db = properties.getMongoDB();
 
         MongoClient mongoClient = new MongoClient( host , port );
-        MongoDatabase database = mongoClient.getDatabase("tests_database");
+        MongoDatabase database = mongoClient.getDatabase(db);
 
         List<TableMetadata> tables = new ArrayList<>();
         if (properties.getMappingMode() == MongoAdapterProperties.MongoMappingMode.JSON) {

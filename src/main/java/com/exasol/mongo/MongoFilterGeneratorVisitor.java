@@ -4,13 +4,8 @@ package com.exasol.mongo;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.sql.*;
 import com.exasol.jsonpath.JsonPathElement;
-import com.exasol.utils.JsonHelper;
 import com.google.common.collect.ImmutableSet;
 import org.bson.conversions.Bson;
-
-import javax.json.JsonArrayBuilder;
-import javax.json.JsonBuilderFactory;
-import javax.json.JsonObjectBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -29,7 +24,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         this.columnsMapping = columnsMapping;
     }
 
-    // TODO Would be good to have a supertype SqlLiteral
+    // TODO COMMON Would be good to have a supertype SqlLiteral
     private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_EXACTNUMERIC, SqlNodeType.LITERAL_STRING);
 
     public static MongoColumnMapping getColumnMappingByName(List<MongoColumnMapping> columnsMapping, String columnName) {
@@ -54,6 +49,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         return colMapping.getJsonPathParsed().stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";
     }
 
+    // TODO Remove, redundant with visit methods
     private Object getLiteralValueForFilter(SqlNode literal) throws AdapterException {
         if (literal.getType() == SqlNodeType.LITERAL_STRING) {
             // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work.
@@ -98,22 +94,35 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlPredicateEqual sqlPredicateEqual) throws AdapterException {
+        return getEqualNonEqual(sqlPredicateEqual.getLeft(), sqlPredicateEqual.getRight(), false);
+    }
+
+    @Override
+    public Bson visit(SqlPredicateNotEqual sqlPredicateNotEqual) throws AdapterException {
+        return getEqualNonEqual(sqlPredicateNotEqual.getLeft(), sqlPredicateNotEqual.getRight(), true);
+    }
+
+    private Bson getEqualNonEqual(SqlNode left, SqlNode right, boolean notEqual) throws AdapterException {
         SqlColumn column;
         SqlNode literal;
-        if (sqlPredicateEqual.getLeft().getType() == SqlNodeType.COLUMN) {
-            column = (SqlColumn) sqlPredicateEqual.getLeft();
-            literal = sqlPredicateEqual.getRight();
-        } else if (supportedLiterals.contains(sqlPredicateEqual.getLeft().getType())) {
-            if (!(sqlPredicateEqual.getRight().getType() == SqlNodeType.COLUMN)) {
-                throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
+        if (left.getType() == SqlNodeType.COLUMN) {
+            column = (SqlColumn) left;
+            literal = right;
+        } else if (supportedLiterals.contains(left.getType())) {
+            if (!(right.getType() == SqlNodeType.COLUMN)) {
+                throw new RuntimeException("Unsupported predicate: " + right.toString()); // TODO COMMON Make toSimpleSql public
             }
-            column = (SqlColumn) sqlPredicateEqual.getRight();
-            literal = sqlPredicateEqual.getLeft();
+            column = (SqlColumn) right;
+            literal = left;
         } else {
-            throw new AdapterException("Unsupported predicate: " + sqlPredicateEqual.toSimpleSql());
+            throw new RuntimeException("Unsupported predicate: " + left.toString() + " " + right.toString()); // TODO COMMON Make toSimpleSql public
         }
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
-        return eq(mongoFilterKey, getLiteralValueForFilter(literal));
+        if (notEqual) {
+            return ne(mongoFilterKey, getLiteralValueForFilter(literal));
+        } else {
+            return eq(mongoFilterKey, getLiteralValueForFilter(literal));
+        }
     }
 
     @Override
@@ -178,12 +187,84 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
-    public Bson visit(SqlColumn sqlColumn) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
+    public Bson visit(SqlPredicateOr sqlPredicateOr) throws AdapterException {
+        List<Bson> predicates = new ArrayList<>();
+        for (SqlNode node : sqlPredicateOr.getOrPredicates()) {
+            predicates.add(node.accept(this));
+        }
+        return or(predicates);
     }
 
     @Override
-    public Bson visit(SqlLiteralString sqlLiteralString) throws AdapterException {
+    public Bson visit(SqlPredicateBetween sqlPredicateBetween) throws AdapterException {
+        // TODO COMMON Make toSimpleSql public!!!
+        if (sqlPredicateBetween.getExpression().getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Internal error: Between with non-column expression should never be called: " + sqlPredicateBetween.getExpression().getType());
+        }
+        SqlColumn column = (SqlColumn) sqlPredicateBetween.getExpression();
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        SqlNode left = sqlPredicateBetween.getBetweenLeft();
+        SqlNode right = sqlPredicateBetween.getBetweenRight();
+        return and(gte(mongoFilterKey, getLiteralValueForFilter(left)), lte(mongoFilterKey, getLiteralValueForFilter(right)));
+    }
+
+    @Override
+    public Bson visit(SqlPredicateNot sqlPredicateNot) throws AdapterException {
+        return not(sqlPredicateNot.getExpression().accept(this));
+    }
+
+    @Override
+    public Bson visit(SqlPredicateInConstList sqlPredicateInConstList) throws AdapterException {
+        if (sqlPredicateInConstList.getExpression().getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Internal error: In with non-column expression should never be called: " + sqlPredicateInConstList.getExpression().getType());
+        }
+        List<Object> inArgs = new ArrayList<>();
+        for (SqlNode node : sqlPredicateInConstList.getInArguments()) {
+            inArgs.add(getLiteralValueForFilter(node));
+        }
+        SqlColumn column = (SqlColumn) sqlPredicateInConstList.getExpression();
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        return in(mongoFilterKey, inArgs);
+    }
+
+    @Override
+    public Bson visit(SqlPredicateIsNotNull sqlPredicateIsNotNull) throws AdapterException {
+        if (sqlPredicateIsNotNull.getExpression().getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Internal error: IsNotNull with non-column expression should never be called: " + sqlPredicateIsNotNull.getExpression().getType());
+        }
+        SqlColumn column = (SqlColumn)sqlPredicateIsNotNull.getExpression();
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        return exists(mongoFilterKey, true);
+    }
+
+    @Override
+    public Bson visit(SqlPredicateIsNull sqlPredicateIsNull) throws AdapterException {
+        if (sqlPredicateIsNull.getExpression().getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Internal error: IsNull with non-column expression should never be called: " + sqlPredicateIsNull.getExpression().getType());
+        }
+        SqlColumn column = (SqlColumn)sqlPredicateIsNull.getExpression();
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        return exists(mongoFilterKey, false);
+    }
+
+    @Override
+    public Bson visit(SqlPredicateLikeRegexp sqlPredicateLikeRegexp) throws AdapterException {
+        if (sqlPredicateLikeRegexp.getLeft().getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Internal error: Adapter only supports regexp like with column on left side: " + sqlPredicateLikeRegexp.getLeft().getType());
+        }
+        if (sqlPredicateLikeRegexp.getPattern().getType() != SqlNodeType.LITERAL_STRING) {
+            throw new RuntimeException("Internal error: Adapter only supports regexp like with string as pattern: " + sqlPredicateLikeRegexp.getPattern().getType());
+        }
+        SqlColumn column = (SqlColumn) sqlPredicateLikeRegexp.getLeft();
+        String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
+        return regex(mongoFilterKey, ((SqlLiteralString)sqlPredicateLikeRegexp.getPattern()).getValue());
+    }
+
+    /**
+     * Handled by the other visit methods where columns can occur.
+     */
+    @Override
+    public Bson visit(SqlColumn sqlColumn) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 
@@ -238,12 +319,22 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
-    public Bson visit(SqlLiteralBool sqlLiteralBool) throws AdapterException {
+    public Bson visit(SqlLiteralDate sqlLiteralDate) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 
     @Override
-    public Bson visit(SqlLiteralDate sqlLiteralDate) throws AdapterException {
+    public Bson visit(SqlLiteralNull sqlLiteralNull) throws AdapterException {
+        throw new RuntimeException("Internal error: visit for this type should never be called");
+    }
+
+    @Override
+    public Bson visit(SqlLiteralString sqlLiteralString) throws AdapterException {
+        throw new RuntimeException("Internal error: visit for this type should never be called");
+    }
+
+    @Override
+    public Bson visit(SqlLiteralBool sqlLiteralBool) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 
@@ -254,11 +345,6 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlLiteralExactnumeric sqlLiteralExactnumeric) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlLiteralNull sqlLiteralNull) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 
@@ -283,47 +369,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
-    public Bson visit(SqlPredicateBetween sqlPredicateBetween) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateInConstList sqlPredicateInConstList) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
     public Bson visit(SqlPredicateLike sqlPredicateLike) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateLikeRegexp sqlPredicateLikeRegexp) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateNot sqlPredicateNot) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateNotEqual sqlPredicateNotEqual) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateOr sqlPredicateOr) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateIsNotNull sqlPredicateIsNotNull) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateIsNull sqlPredicateIsNull) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 
