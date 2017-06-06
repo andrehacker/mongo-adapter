@@ -7,6 +7,9 @@ import com.exasol.mongo.MongoMappingParser;
 
 import java.util.Map;
 
+/**
+ * TODO Check valid input: e.g. mapping is a valid json
+ */
 public class MongoAdapterProperties {
 
     static final String PROP_MONGO_HOST = "MONGO_HOST";
