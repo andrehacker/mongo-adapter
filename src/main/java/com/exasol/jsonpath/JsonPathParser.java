@@ -14,7 +14,7 @@ public class JsonPathParser {
 		// 1) quoted field names "field.name"
 		// 2) list indices in square brackets [i]
 		// 3) unquoted field names (may not contain . or [)
-		String regex = "\"([^\"]*)\"|\\[(\\d+)\\]|([^\\.\\[]+)";
+		String regex = "\"([^\"]*)\"|\\[(\\d+)\\]|\\[(\\*)\\]|([^\\.\\[]+)";
 		Matcher matcher = Pattern.compile(regex).matcher(jsonPathSpecification);
 		while (matcher.find()) {
 			if (matcher.group(1) != null) {
@@ -25,12 +25,14 @@ public class JsonPathParser {
 				}
 			} else if (matcher.group(2) != null) {
 				path.add(new JsonPathListIndexElement(Long.parseLong(matcher.group(2))));
+			} else if (matcher.group(3) != null) {
+				path.add(new JsonPathStarOperatorElement());
 			} else {
-				assert(matcher.group(3) != null);
-				if (matcher.group(3).equals("$")) {
+				assert(matcher.group(4) != null);
+				if (matcher.group(4).equals("$")) {
 					// root element. Root element is always implicitly added, we don't add an element for it
 				} else {
-					path.add(new JsonPathFieldElement(matcher.group(3)));
+					path.add(new JsonPathFieldElement(matcher.group(4)));
 				}
 			}
 		}

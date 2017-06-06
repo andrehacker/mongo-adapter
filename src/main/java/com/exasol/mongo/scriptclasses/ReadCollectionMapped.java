@@ -6,9 +6,6 @@ import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.request.PushdownRequest;
-import com.exasol.adapter.sql.AggregateFunction;
-import com.exasol.adapter.sql.SqlFunctionAggregate;
-import com.exasol.adapter.sql.SqlNodeType;
 import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
@@ -27,11 +24,12 @@ import com.mongodb.util.JSON;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
-import static com.exasol.adapter.sql.AggregateFunction.*;
 import static com.exasol.mongo.MongoColumnMapping.MongoType.DOCUMENT;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
@@ -89,18 +87,50 @@ public class ReadCollectionMapped {
                 tempCursor = tempCursor.limit(maxRows);
             }
             MongoCursor<Document> cursor = tempCursor.iterator();
-            Object row[] = new Object[collectionMapping.getColumnMappings().size()];
-            try {
-                while (cursor.hasNext()) {
-                    Document doc = cursor.next();
-                    int i = 0;
-                    for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
-                        row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+            if (collectionMapping.hasListStar()) {
+                // Explode (like Hive explode function)
+                // Better approach: call getFieldByType one time for simple values, and then n times for complex values (with incrementing the list index to obtain!) This simulates for a.b[*] calls like a.b[0], a.b[1], a.b[2], until there is no more (return NULL then). Could be extended in future by multiple list indices.
+                Object rowSimple[] = new Object[collectionMapping.getColumnMappings().size()];
+                List<List<Object>> rowLists = new ArrayList<>(collectionMapping.getColumnMappings().size()); // INITIALIZE WITH EMPTY ARRAYLISTS!
+                List<Integer> simpleIndices = collectionMapping.getColumnMappingsWithoutListStar();
+                List<Integer> listIndices = collectionMapping.getListStarColumnMappings();
+                try {
+                    while (cursor.hasNext()) {
+                        Document doc = cursor.next();
+                        int maxExplodeSize = 1;
+                        for (Integer index : simpleIndices) {
+                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
+                            rowSimple[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                            maxExplodeSize = Math.max(maxExplodeSize, ((Object[])rowSimple[index]).length );
+                        }
+                        for (Integer index : listIndices) {
+                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
+                            //rowLists[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                        }
+                        for (int explodeIndex=0; explodeIndex<maxExplodeSize; explodeIndex++) {
+                            for (Integer index : listIndices) {
+
+                            }
+                            iter.emit(rowSimple);
+                        }
                     }
-                    iter.emit(row);
+                } finally {
+                    cursor.close();
                 }
-            } finally {
-                cursor.close();
+            } else {
+                Object row[] = new Object[collectionMapping.getColumnMappings().size()];
+                try {
+                    while (cursor.hasNext()) {
+                        Document doc = cursor.next();
+                        int i = 0;
+                        for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
+                            row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                        }
+                        iter.emit(row);
+                    }
+                } finally {
+                    cursor.close();
+                }
             }
         }
     }
@@ -144,7 +174,6 @@ public class ReadCollectionMapped {
         try {
             JsonPathFieldElement element = (JsonPathFieldElement) jsonPath.get(0);
             if (jsonPath.size() > 1) {
-                // go down into nested document
                 try {
                     for (int i = 0; i < jsonPath.size() - 1; i++) {
                         JsonPathElement curElement = jsonPath.get(i);

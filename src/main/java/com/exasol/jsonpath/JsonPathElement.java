@@ -2,12 +2,13 @@ package com.exasol.jsonpath;
 
 public interface JsonPathElement {
 
-	enum Type {
-		FIELD,
-		LIST_INDEX
-	}
+    enum Type {
+        FIELD,
+        LIST_INDEX,
+        LIST_STAR
+    }
 
-	String toJsonPathString();
+    String toJsonPathString();
 
-	Type getType();
+    Type getType();
 }

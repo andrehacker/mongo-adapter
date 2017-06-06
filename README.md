@@ -7,6 +7,9 @@ The adapter has following features
   - JSON mode, where each collection is mapped to a table with a single column containing the JSON representation of the documents
   - MAPPED mode, where you can specify which fields of a document shall be mapped to columns in virtual tables.
 
+To Be Considered
+* EXASOL cannot distinguish between empty strings '' and NULL. However, in MongoDB a document could either not contain a field, or contain it with empty string. The adapter does not distinguish these two cases. I.e. IS NULL filter means the field does not exist or it exists with empty string. IS NOT NULL means the field exists and has a value different from empty string.
+
 ## How To Deploy
 
 ### 1. Prerequisites:

@@ -49,10 +49,9 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         return colMapping.getJsonPathParsed().stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";
     }
 
-    // TODO Remove, redundant with visit methods
     private Object getLiteralValueForFilter(SqlNode literal) throws AdapterException {
         if (literal.getType() == SqlNodeType.LITERAL_STRING) {
-            // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work.
+            // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work. But how do we know which column we filter for here?
             return ((SqlLiteralString)literal).getValue();
         } else if (literal.getType() == SqlNodeType.LITERAL_BOOL) {
             return ((SqlLiteralBool)literal).getValue();
@@ -234,7 +233,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         }
         SqlColumn column = (SqlColumn)sqlPredicateIsNotNull.getExpression();
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
-        return exists(mongoFilterKey, true);
+        return and(exists(mongoFilterKey, true), ne(mongoFilterKey, ""));   // TODO Check if this is a problem if mongoFilterKey is not of type string
     }
 
     @Override
@@ -244,7 +243,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         }
         SqlColumn column = (SqlColumn)sqlPredicateIsNull.getExpression();
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
-        return exists(mongoFilterKey, false);
+        return or(exists(mongoFilterKey, false), eq(mongoFilterKey, ""));   // TODO Check if this is a problem if mongoFilterKey is not of type string
     }
 
     @Override
