@@ -12,14 +12,14 @@ import java.util.Map;
  */
 public class MongoAdapterProperties {
 
-    static final String PROP_MONGO_HOST = "MONGO_HOST";
-    static final String PROP_MONGO_PORT = "MONGO_PORT";
-    static final String PROP_MONGO_DB = "MONGO_DB";
-    static final String PROP_MODE = "MODE";
-    static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
-    static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
-    static final String PROP_MAPPING = "MAPPING";
-    static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
+    public static final String PROP_MONGO_HOST = "MONGO_HOST";
+    public static final String PROP_MONGO_PORT = "MONGO_PORT";
+    public static final String PROP_MONGO_DB = "MONGO_DB";
+    public static final String PROP_MODE = "MODE";
+    public static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
+    public static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
+    public static final String PROP_MAPPING = "MAPPING";
+    public static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
 
     private Map<String, String> properties;
 

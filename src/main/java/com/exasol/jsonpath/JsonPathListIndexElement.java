@@ -3,13 +3,13 @@ package com.exasol.jsonpath;
 
 public class JsonPathListIndexElement implements JsonPathElement {
 	
-	private long listIndex;
+	private int listIndex;
 	
-	public JsonPathListIndexElement(long listIndex) {
+	public JsonPathListIndexElement(int listIndex) {
 		this.listIndex = listIndex;
 	}
 	
-	public long getListIndex() {
+	public int getListIndex() {
 		return listIndex;
 	}
 

@@ -9,6 +9,7 @@ import com.exasol.adapter.request.PushdownRequest;
 import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
+import com.exasol.jsonpath.JsonPathListIndexElement;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
@@ -88,30 +89,30 @@ public class ReadCollectionMapped {
             }
             MongoCursor<Document> cursor = tempCursor.iterator();
             if (collectionMapping.hasListStar()) {
-                // Explode (like Hive explode function)
                 // Better approach: call getFieldByType one time for simple values, and then n times for complex values (with incrementing the list index to obtain!) This simulates for a.b[*] calls like a.b[0], a.b[1], a.b[2], until there is no more (return NULL then). Could be extended in future by multiple list indices.
-                Object rowSimple[] = new Object[collectionMapping.getColumnMappings().size()];
-                List<List<Object>> rowLists = new ArrayList<>(collectionMapping.getColumnMappings().size()); // INITIALIZE WITH EMPTY ARRAYLISTS!
-                List<Integer> simpleIndices = collectionMapping.getColumnMappingsWithoutListStar();
-                List<Integer> listIndices = collectionMapping.getListStarColumnMappings();
+                Object row[] = new Object[collectionMapping.getColumnMappings().size()];
+                List<Integer> simpleColumnIndices = collectionMapping.getColumnMappingsWithoutListStar();
+                List<Integer> listColumnIndices = collectionMapping.getListStarColumnMappings();
                 try {
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
-                        int maxExplodeSize = 1;
-                        for (Integer index : simpleIndices) {
+                        for (Integer index : simpleColumnIndices) {
                             MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
-                            rowSimple[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
-                            maxExplodeSize = Math.max(maxExplodeSize, ((Object[])rowSimple[index]).length );
+                            row[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                         }
-                        for (Integer index : listIndices) {
-                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
-                            //rowLists[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
-                        }
-                        for (int explodeIndex=0; explodeIndex<maxExplodeSize; explodeIndex++) {
-                            for (Integer index : listIndices) {
-
+                        boolean foundListElement = true;
+                        int listIndex = 0;
+                        while (foundListElement) {
+                            foundListElement = false;
+                            for (Integer colIndex : listColumnIndices) {
+                                MongoColumnMapping col = collectionMapping.getColumnMappings().get(colIndex);
+                                row[colIndex] = getFieldByType(doc, replaceListStar(col.getJsonPathParsed(), listIndex), col.getType(), schemaEnforcementLevel);
+                                foundListElement = foundListElement || (row[colIndex] != null);
                             }
-                            iter.emit(rowSimple);
+                            if (foundListElement) {
+                                iter.emit(row);
+                                listIndex++;
+                            }
                         }
                     }
                 } finally {
@@ -133,6 +134,16 @@ public class ReadCollectionMapped {
                 }
             }
         }
+    }
+
+    private static List<JsonPathElement> replaceListStar(List<JsonPathElement> jsonPath, int index) {
+        List<JsonPathElement> clone = new ArrayList<>(jsonPath);  // TODO slow!
+        for (int i=0; i<jsonPath.size(); i++) {
+            if (jsonPath.get(i).getType() == JsonPathElement.Type.LIST_STAR) {
+                clone.set(i, new JsonPathListIndexElement(index));
+            }
+        }
+        return clone;
     }
 
     /**
@@ -165,42 +176,54 @@ public class ReadCollectionMapped {
     }
 
     private static Object getFieldByType(Document doc, List<JsonPathElement> jsonPath, MongoColumnMapping.MongoType type, SchemaEnforcementLevel schemaEnforcementLevel) throws AdapterException {
+        Object curElement = doc;
         if (jsonPath.isEmpty()) {
             if (type != DOCUMENT) {
                 throw new AdapterException("The root field '$' is of type DOCUMENT, but was specified as type " + type.name() + " in the mapping.");
             }
-            return doc.toJson();
+            return ((Document)curElement).toJson();
         }
         try {
-            JsonPathFieldElement element = (JsonPathFieldElement) jsonPath.get(0);
+            JsonPathElement curPathElement = (JsonPathFieldElement) jsonPath.get(0);
             if (jsonPath.size() > 1) {
                 try {
-                    for (int i = 0; i < jsonPath.size() - 1; i++) {
-                        JsonPathElement curElement = jsonPath.get(i);
-                        assert (curElement.getType() == JsonPathElement.Type.FIELD);  // TODO Only field access supported - check in a nicer way!
-                        doc = doc.get(((JsonPathFieldElement) curElement).getFieldName(), Document.class);
+                    for (int i = 0; i < jsonPath.size() - 1; i++) {  // TODO Can we simply go to leaf here?
+                        curPathElement = jsonPath.get(i);
+                        if (curPathElement.getType() == JsonPathElement.Type.FIELD) {
+                            curElement = ((Document)curElement).get(((JsonPathFieldElement) curPathElement).getFieldName());
+                        } else if (curPathElement.getType() == JsonPathElement.Type.LIST_INDEX) {
+                            if (((List)curElement).size() <= ((JsonPathListIndexElement) curPathElement).getListIndex()) {
+                                return null;
+                            }
+                            curElement = ((List)curElement).get(((JsonPathListIndexElement) curPathElement).getListIndex());
+                        } else {
+                            throw new RuntimeException("Unsupported path type (" + curPathElement.getType() + "), should never happen");
+                        }
                     }
                 } catch (NullPointerException ex) {
                     // Handle only case where nested structure does not exist as specified (not even with different types)
                     return null;
                 }
-                if (doc == null) {
+                if (curElement == null) {
                     return null;  // we would run into an nullpointerexception
                 }
-                element = ((JsonPathFieldElement) jsonPath.get(jsonPath.size() - 1));
+                curPathElement = ((JsonPathFieldElement) jsonPath.get(jsonPath.size() - 1));
+            }
+            if (curPathElement.getType() == JsonPathElement.Type.FIELD) {
+                curElement = ((Document)curElement).get(((JsonPathFieldElement) curPathElement).getFieldName());
+            } else if (curPathElement.getType() == JsonPathElement.Type.LIST_INDEX) {
+                curElement = ((List)curElement).get(((JsonPathListIndexElement) curPathElement).getListIndex());
             }
             if (type == MongoColumnMapping.MongoType.OBJECTID) {
-                return doc.get(element.getFieldName(), ObjectId.class).toString();
+                return ((ObjectId)curElement).toString();
             } else if (type.isPrimitive()) {
-                return doc.get(element.getFieldName(), type.getClazz());
+                return curElement;
             } else {
                 // return as json representation
                 if (type == DOCUMENT) {
-                    Document val = doc.get(element.getFieldName(), Document.class);
-                    return (val == null) ? null : val.toJson();
+                    return (curElement == null) ? null : ((Document)curElement).toJson();
                 } else if (type == MongoColumnMapping.MongoType.ARRAY) {
-                    List<?> val = doc.get(element.getFieldName(), List.class);
-                    return (val == null) ? null : JSON.serialize(val);
+                    return (curElement == null) ? null : JSON.serialize(curElement);
                 } else {
                     throw new RuntimeException("Unknown non-primitive mongo type, should never happen: " + type);
                 }

@@ -90,7 +90,7 @@ public class MongoAdapter {
         capabilities.supportMainCapability(MainCapability.LIMIT);
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
         capabilities.supportMainCapability(MainCapability.AGGREGATE_SINGLE_GROUP);
-        capabilities.supportMainCapability(MainCapability.SELECTLIST_EXPRESSIONS); // TODO COMMON: Problem: This is required for COUNT(*) pushdown, but I don't want to allow it for other expressions basically!
+        capabilities.supportMainCapability(MainCapability.SELECTLIST_EXPRESSIONS); // TODO COMMON: Problem: This is required for COUNT(*) pushdown, but I don't want to allow it for other expressions basically! ORDER BY FALSE triggers this too
         capabilities.supportAggregateFunction(AggregateFunctionCapability.COUNT_STAR);
         capabilities.supportPredicate(PredicateCapability.AND);
         capabilities.supportPredicate(PredicateCapability.OR);
