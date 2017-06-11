@@ -13,7 +13,7 @@ public class JsonPathParserTest {
         List<JsonPathElement> path = JsonPathParser.parseJsonPath("a.b[*].c");
         assertEquals(JsonPathElement.Type.FIELD, path.get(0).getType());
         assertEquals(JsonPathElement.Type.FIELD, path.get(1).getType());
-        assertEquals(JsonPathElement.Type.LIST_STAR, path.get(2).getType());
+        assertEquals(JsonPathElement.Type.LIST_WILDCARD, path.get(2).getType());
         assertEquals(JsonPathElement.Type.FIELD, path.get(3).getType());
     }
 

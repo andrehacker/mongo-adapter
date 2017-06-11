@@ -1,5 +1,6 @@
 package com.exasol.mongo;
 
+import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.metadata.TableMetadata;
 
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ public class MongoDBMapping {
         throw new RuntimeException("Internal error: Did not find collection mapping by table name: " + tableName);
     }
 
-    public static MongoDBMapping constructDefaultMapping(List<TableMetadata> tablesMetadata) {
+    public static MongoDBMapping constructDefaultMapping(List<TableMetadata> tablesMetadata) throws AdapterException {
         List<MongoCollectionMapping> collectionMappings = new ArrayList<>();
         for (TableMetadata tableMetadata : tablesMetadata) {
             List<MongoColumnMapping> columnMappings = new ArrayList<>();

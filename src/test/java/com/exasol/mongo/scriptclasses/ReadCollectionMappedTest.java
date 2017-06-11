@@ -1,8 +1,7 @@
 package com.exasol.mongo.scriptclasses;
 
-import com.exasol.ExaDataTypeException;
-import com.exasol.ExaIterationException;
-import com.exasol.ExaIterator;
+import com.exasol.DummyExaIterator;
+import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.metadata.*;
 import com.exasol.adapter.request.PushdownRequest;
 import com.exasol.adapter.sql.*;
@@ -14,15 +13,9 @@ import org.bson.Document;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.math.BigDecimal;
-import java.sql.Date;
-import java.sql.Timestamp;
 import java.util.*;
-import java.util.regex.Pattern;
 
 import static junit.framework.TestCase.assertEquals;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 
 /**
@@ -32,7 +25,7 @@ public class ReadCollectionMappedTest {
 
     private static final String MONGO_HOST = "127.0.0.1";
     private static final String MONGO_PORT = "27017";
-    private static final String MONGO_DB = "automatic_test_db";
+    private static final String MONGO_DB = "tmp_automatic_test_db";
 
     @BeforeClass
     public static void beforeClass() {
@@ -104,11 +97,11 @@ public class ReadCollectionMappedTest {
         assertEquals(1, iter.getEmittedRows().size());
         assertEquals("val1", iter.getEmittedRows().get(0).get(0));
         assertEquals("val2", iter.getEmittedRows().get(0).get(1));
-        assertTrue(iter.getEmittedRows().get(0).get(2).toString().contains(", \"field1\" : \"val1\", \"field2\" : { \"subfield1\" : \"val2\", \"subfield2\" : [{ \"attr\" : \"val3\" }, { \"attr\" : \"val4\" }] }, \"field3\" : [\"val5\", \"val6\"] }"));
+        assertEquals("{ \"_id\" : {  }, \"field1\" : \"val1\", \"field2\" : { \"subfield1\" : \"val2\", \"subfield2\" : [{ \"attr\" : \"val3\" }, { \"attr\" : \"val4\" }] }, \"field3\" : [\"val5\", \"val6\", \"val7\"] }", iter.getEmittedRows().get(0).get(2).toString().replaceFirst("\"\\$oid\" : \"[\\d|a-z]+\"",""));
     }
 
     @Test
-    public void testReadMappedListStar() throws Exception {
+    public void testReadMappedListWildcard() throws Exception {
         String mappingSpec = "{\n" +
                 "    \"tables\": [\n" +
                 "        {\n" +
@@ -116,20 +109,10 @@ public class ReadCollectionMappedTest {
                 "            \"tableName\": \"TEST\",\n" +
                 "            \"columns\": [\n" +
                 "                {\n" +
-                "                    \"jsonpath\": \"field1\",\n" +
-                "                    \"columnName\": \"FIELD1\",\n" +
-                "                    \"type\": \"string\"\n" +
-                "                },\n" +
-                "                {\n" +
                 "                    \"jsonpath\": \"field2.subfield1\",\n" +
                 "                    \"columnName\": \"SUBFIELD1\",\n" +
                 "                    \"type\": \"string\"\n" +
                 "                },\n" +
-//                "                {\n" +
-//                "                    \"jsonpath\": \"field2.subfield2[0]\",\n" +
-//                "                    \"columnName\": \"SUBFIELD1_FIRST\",\n" +
-//                "                    \"type\": \"document\"\n" +
-//                "                },\n" +
                 "                {\n" +
                 "                    \"jsonpath\": \"field2.subfield2[*].attr\",\n" +
                 "                    \"columnName\": \"SUBFIELD1_ALL_ATTR\",\n" +
@@ -142,20 +125,125 @@ public class ReadCollectionMappedTest {
         DummyExaIterator iter = new DummyExaIterator();
         ReadCollectionMapped.readMapped(iter, dummyPushdownRequest(mappingSpec));
         assertEquals(2, iter.getEmittedRows().size());
-        assertEquals(Lists.newArrayList("val1", "val2", "val3"), iter.getEmittedRows().get(0));
-        assertEquals(Lists.newArrayList("val1", "val2", "val4"), iter.getEmittedRows().get(1));
+        assertEquals(Lists.newArrayList("val2", "val3"), iter.getEmittedRows().get(0));
+        assertEquals(Lists.newArrayList("val2", "val4"), iter.getEmittedRows().get(1));
     }
 
-    private PushdownRequest dummyPushdownRequest(String mappingSpec) throws MetadataException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(MongoAdapterProperties.PROP_MONGO_HOST, MONGO_HOST);
-        properties.put(MongoAdapterProperties.PROP_MONGO_PORT, MONGO_PORT);
-        properties.put(MongoAdapterProperties.PROP_MONGO_DB, MONGO_DB);
-        properties.put(MongoAdapterProperties.PROP_MODE, "mapped");
-        properties.put(MongoAdapterProperties.PROP_MAPPING, mappingSpec);
-        SchemaMetadataInfo schemaMetadataInfo = new SchemaMetadataInfo("VS_MONGO", "", properties);
+    @Test
+    public void testReadMappedTwoListWildcards() throws Exception {
+        String mappingSpec = "{\n" +
+                "    \"tables\": [\n" +
+                "        {\n" +
+                "            \"collectionName\": \"test\",\n" +
+                "            \"tableName\": \"TEST\",\n" +
+                "            \"columns\": [\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield1\",\n" +
+                "                    \"columnName\": \"SUBFIELD1\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                },\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield2[*].attr\",\n" +
+                "                    \"columnName\": \"SUBFIELD1_ALL_ATTR\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                },\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field3[*]\",\n" +
+                "                    \"columnName\": \"FIELD3\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                }\n" +
+                "            ]\n" +
+                "        }\n" +
+                "    ]\n" +
+                "}";
+        DummyExaIterator iter = new DummyExaIterator();
+        ReadCollectionMapped.readMapped(iter, dummyPushdownRequest(mappingSpec));
+        assertEquals(3, iter.getEmittedRows().size());
+        assertEquals(Lists.newArrayList("val2", "val3", "val5"), iter.getEmittedRows().get(0));
+        assertEquals(Lists.newArrayList("val2", "val4", "val6"), iter.getEmittedRows().get(1));
+        assertEquals(Lists.newArrayList("val2", null, "val7"), iter.getEmittedRows().get(2));
+    }
 
-        return new PushdownRequest(schemaMetadataInfo, getTestSqlNode(), Lists.newArrayList(getTestTableMetadata()));
+    @Test(expected= AdapterException.class)
+    public void testUnsupportedMultipleListWildcards() throws Exception {
+        String mappingSpec = "{\n" +
+                "    \"tables\": [\n" +
+                "        {\n" +
+                "            \"collectionName\": \"test\",\n" +
+                "            \"tableName\": \"TEST\",\n" +
+                "            \"columns\": [\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"any1[*].any2[*].attr\",\n" +
+                "                    \"columnName\": \"ANY\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                }\n" +
+                "            ]\n" +
+                "        }\n" +
+                "    ]\n" +
+                "}";
+        DummyExaIterator iter = new DummyExaIterator();
+        ReadCollectionMapped.readMapped(iter, dummyPushdownRequest(mappingSpec));
+    }
+
+    @Test
+    public void testReadMappedInvalidTypes() throws Exception {
+        String mappingSpec = "{\n" +
+                "    \"tables\": [\n" +
+                "        {\n" +
+                "            \"collectionName\": \"test\",\n" +
+                "            \"tableName\": \"TEST\",\n" +
+                "            \"columns\": [\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field1\",\n" +
+                "                    \"columnName\": \"FIELD1\",\n" +
+                "                    \"type\": \"integer\"\n" +         // wrong type (1st level)
+                "                },\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield2\",\n" + // wrong type (leaf of nested)
+                "                    \"columnName\": \"SUBFIELD2\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                },\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield1.nonexisting\",\n" +  // wrong type (in middle of path)
+                "                    \"columnName\": \"NONEXISTING1\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                }\n" +
+                "            ]\n" +
+                "        }\n" +
+                "    ]\n" +
+                "}";
+        DummyExaIterator iter = new DummyExaIterator();
+        ReadCollectionMapped.readMapped(iter, dummyPushdownRequest(mappingSpec));
+        assertEquals(1, iter.getEmittedRows().size());
+        assertEquals(Lists.newArrayList(null, "[ { \"attr\" : \"val3\"} , { \"attr\" : \"val4\"}]", null), iter.getEmittedRows().get(0));
+    }
+
+    @Test
+    public void testReadMappedToString() throws Exception {
+        String mappingSpec = "{\n" +
+                "    \"tables\": [\n" +
+                "        {\n" +
+                "            \"collectionName\": \"test\",\n" +
+                "            \"tableName\": \"TEST\",\n" +
+                "            \"columns\": [\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield2\",\n" + // wrong type (leaf of nested)
+                "                    \"columnName\": \"SUBFIELD2\",\n" +
+                "                    \"type\": \"array\"\n" +
+                "                },\n" +
+                "                {\n" +
+                "                    \"jsonpath\": \"field2.subfield2[0]\",\n" +  // wrong type (in middle of path)
+                "                    \"columnName\": \"NONEXISTING1\",\n" +
+                "                    \"type\": \"string\"\n" +
+                "                }\n" +
+                "            ]\n" +
+                "        }\n" +
+                "    ]\n" +
+                "}";
+        DummyExaIterator iter = new DummyExaIterator();
+        ReadCollectionMapped.readMapped(iter, dummyPushdownRequest(mappingSpec));
+        assertEquals(1, iter.getEmittedRows().size());
+        assertEquals(Lists.newArrayList("[ { \"attr\" : \"val3\"} , { \"attr\" : \"val4\"}]", "{ \"attr\" : \"val3\" }"), iter.getEmittedRows().get(0));
     }
 
     private static void createTestData() {
@@ -180,26 +268,32 @@ public class ReadCollectionMappedTest {
                 "    },\n" +
                 "    \"field3\": [\n" +
                 "        \"val5\",\n" +
-                "        \"val6\"\n" +
+                "        \"val6\",\n" +
+                "        \"val7\"\n" +
                 "    ]\n" +
                 "}";
 
         database.getCollection("test").insertOne(Document.parse(json));
     }
 
+    private PushdownRequest dummyPushdownRequest(String mappingSpec) throws MetadataException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(MongoAdapterProperties.PROP_MONGO_HOST, MONGO_HOST);
+        properties.put(MongoAdapterProperties.PROP_MONGO_PORT, MONGO_PORT);
+        properties.put(MongoAdapterProperties.PROP_MONGO_DB, MONGO_DB);
+        properties.put(MongoAdapterProperties.PROP_MODE, "mapped");
+        properties.put(MongoAdapterProperties.PROP_MAPPING, mappingSpec);
+        SchemaMetadataInfo schemaMetadataInfo = new SchemaMetadataInfo("VS_MONGO", "", properties);
+
+        return new PushdownRequest(schemaMetadataInfo, getTestSqlNode(), Lists.newArrayList(getTestTableMetadata()));
+    }
+
     public static SqlStatement getTestSqlNode() throws MetadataException {
-        // SELECT USER_ID, count(URL) FROM CLICKS
-        // WHERE 1 < USER_ID
-        // GROUP BY USER_ID
-        // HAVING 1 < COUNT(URL)
-        // ORDER BY USER_ID
-        // LIMIT 10;
         TableMetadata testTableMetadata = getTestTableMetadata();
         SqlTable fromClause = new SqlTable("TEST", testTableMetadata);
         SqlSelectList selectList = SqlSelectList.createSelectStarSelectList();
         SqlNode whereClause = null;
         SqlExpressionList groupBy = null;
-        SqlNode countUrl = null;
         SqlNode having = null;
         SqlOrderBy orderBy = null;
         SqlLimit limit = null;
@@ -208,130 +302,9 @@ public class ReadCollectionMappedTest {
 
     public static TableMetadata getTestTableMetadata() throws MetadataException {
         List<ColumnMetadata> columns = new ArrayList<>();
-        columns.add(new ColumnMetadata("FIELD1", "", DataType.createVarChar(10000, DataType.ExaCharset.UTF8), true, false, "", ""));
-        columns.add(new ColumnMetadata("SUBFIELD1", "", DataType.createVarChar(10000, DataType.ExaCharset.UTF8), true, false, "", ""));
-        columns.add(new ColumnMetadata("SUBFIELD1_FIRST", "", DataType.createVarChar(10000, DataType.ExaCharset.UTF8), true, false, "", ""));
-        columns.add(new ColumnMetadata("SUBFIELD1_ALL_ATTR", "", DataType.createVarChar(10000, DataType.ExaCharset.UTF8), true, false, "", ""));
+        columns.add(new ColumnMetadata("DUMMYFIELD", "", DataType.createVarChar(10000, DataType.ExaCharset.UTF8), true, false, "", ""));
         TableMetadata tableMetadata = new TableMetadata("TEST", "", columns, "");
         return tableMetadata;
     }
 
-    private class DummyExaIterator implements ExaIterator {
-
-        private List<List<Object>> emittedRows = new ArrayList<>();
-
-        public List<List<Object>> getEmittedRows() {
-            return emittedRows;
-        }
-
-        @Override
-        public void emit(Object... objects) throws ExaIterationException, ExaDataTypeException {
-            emittedRows.add(Arrays.asList(objects.clone()));
-        }
-
-        @Override
-        public long size() throws ExaIterationException {
-            return 0;
-        }
-
-        @Override
-        public boolean next() throws ExaIterationException {
-            return false;
-        }
-
-        @Override
-        public void reset() throws ExaIterationException {
-
-        }
-
-        @Override
-        public Integer getInteger(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Integer getInteger(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Long getLong(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Long getLong(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public BigDecimal getBigDecimal(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public BigDecimal getBigDecimal(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Double getDouble(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Double getDouble(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public String getString(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public String getString(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Boolean getBoolean(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Boolean getBoolean(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Date getDate(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Date getDate(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Timestamp getTimestamp(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Timestamp getTimestamp(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Object getObject(int i) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-
-        @Override
-        public Object getObject(String s) throws ExaIterationException, ExaDataTypeException {
-            return null;
-        }
-    }
 }

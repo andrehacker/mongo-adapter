@@ -5,7 +5,7 @@ public interface JsonPathElement {
     enum Type {
         FIELD,
         LIST_INDEX,
-        LIST_STAR
+        LIST_WILDCARD
     }
 
     String toJsonPathString();

@@ -5,7 +5,6 @@ import com.exasol.jsonpath.JsonPathElement;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class MongoCollectionMapping {
 
@@ -31,20 +30,20 @@ public class MongoCollectionMapping {
         return columnMappings;
     }
 
-    public boolean hasListStar() {
+    public boolean hasListWildcard() {
         for (MongoColumnMapping col : getColumnMappings()) {
-            if (col.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_STAR)) {
+            if (col.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
                 return true;
             }
         }
         return false;
     }
 
-    public List<Integer> getColumnMappingsWithoutListStar() {
+    public List<Integer> getColumnIndicesWithoutListWildcard() {
         List<Integer> indices = new ArrayList<>();
         int i = 0;
         for (MongoColumnMapping columnMapping : columnMappings) {
-            if (! columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_STAR)) {
+            if (! columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
                 indices.add(i);
             }
             i++;
@@ -52,14 +51,30 @@ public class MongoCollectionMapping {
         return indices;
     }
 
-    public List<Integer> getListStarColumnMappings() {
+    public List<Integer> getColumnIndicesWithListWildcard() {
         List<Integer> indices = new ArrayList<>();
         int i = 0;
         for (MongoColumnMapping columnMapping : columnMappings) {
-            if (columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_STAR)) {
+            if (columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
                 indices.add(i);
             }
             i++;
+        }
+        return indices;
+    }
+
+    public List<Integer> getListWildcardJsonPathIndices() {
+        List<Integer> indices = new ArrayList<>();
+        for (MongoColumnMapping columnMapping : columnMappings) {
+            if (columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
+                int i=0;
+                for (JsonPathElement jsonPathElement : columnMapping.getJsonPathParsed() ) {
+                    if (jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD) {
+                        indices.add(i);
+                    }
+                    i++;
+                }
+            }
         }
         return indices;
     }

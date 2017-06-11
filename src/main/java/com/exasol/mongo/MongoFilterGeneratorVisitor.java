@@ -70,7 +70,7 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
                 }
             } else {
                 // TODO Find nicer solution
-                throw new AdapterException("Cannot filter for decimal value with fractional part: " + bigDecimal.toString());
+                throw new AdapterException("Cannot filter for decimal value with fractional part: " + bigDecimal.toString() + ". You can filter for double as a workaround.");
             }
         } else {
             throw new RuntimeException("Unsupported Literal: " + literal.getType());

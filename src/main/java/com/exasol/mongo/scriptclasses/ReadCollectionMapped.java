@@ -23,18 +23,14 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.util.JSON;
 import org.bson.Document;
-import org.bson.types.ObjectId;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 
-import static com.exasol.mongo.MongoColumnMapping.MongoType.DOCUMENT;
+import static com.exasol.mongo.MongoColumnMapping.MongoType.*;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
-import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel.CHECK_TYPE;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.UNLIMITED_RESULT_ROWS;
 
 /**
@@ -88,11 +84,11 @@ public class ReadCollectionMapped {
                 tempCursor = tempCursor.limit(maxRows);
             }
             MongoCursor<Document> cursor = tempCursor.iterator();
-            if (collectionMapping.hasListStar()) {
-                // Better approach: call getFieldByType one time for simple values, and then n times for complex values (with incrementing the list index to obtain!) This simulates for a.b[*] calls like a.b[0], a.b[1], a.b[2], until there is no more (return NULL then). Could be extended in future by multiple list indices.
+            if (collectionMapping.hasListWildcard()) {
                 Object row[] = new Object[collectionMapping.getColumnMappings().size()];
-                List<Integer> simpleColumnIndices = collectionMapping.getColumnMappingsWithoutListStar();
-                List<Integer> listColumnIndices = collectionMapping.getListStarColumnMappings();
+                List<Integer> simpleColumnIndices = collectionMapping.getColumnIndicesWithoutListWildcard();
+                List<Integer> listWildcardColumnIndices = collectionMapping.getColumnIndicesWithListWildcard();
+                List<Integer> listWildcardJsonPathIndices = collectionMapping.getListWildcardJsonPathIndices();
                 try {
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
@@ -100,20 +96,23 @@ public class ReadCollectionMapped {
                             MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
                             row[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                         }
-                        boolean foundListElement = true;
-                        int listIndex = 0;
-                        while (foundListElement) {
+                        boolean foundListElement;
+                        int listIndexToInject = 0;
+                        do {
                             foundListElement = false;
-                            for (Integer colIndex : listColumnIndices) {
+                            for (int i=0; i<listWildcardColumnIndices.size(); i++) {
+                                Integer colIndex = listWildcardColumnIndices.get(i);
+                                Integer jsonPathWildcardIndex = listWildcardJsonPathIndices.get(i);
                                 MongoColumnMapping col = collectionMapping.getColumnMappings().get(colIndex);
-                                row[colIndex] = getFieldByType(doc, replaceListStar(col.getJsonPathParsed(), listIndex), col.getType(), schemaEnforcementLevel);
+                                col.getJsonPathParsed().set(jsonPathWildcardIndex, new JsonPathListIndexElement(listIndexToInject)); // Attention: original parsed path (with wildcard) no longer available afterwards
+                                row[colIndex] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                                 foundListElement = foundListElement || (row[colIndex] != null);
                             }
                             if (foundListElement) {
                                 iter.emit(row);
-                                listIndex++;
+                                listIndexToInject++;
                             }
-                        }
+                        } while (foundListElement);
                     }
                 } finally {
                     cursor.close();
@@ -136,18 +135,8 @@ public class ReadCollectionMapped {
         }
     }
 
-    private static List<JsonPathElement> replaceListStar(List<JsonPathElement> jsonPath, int index) {
-        List<JsonPathElement> clone = new ArrayList<>(jsonPath);  // TODO slow!
-        for (int i=0; i<jsonPath.size(); i++) {
-            if (jsonPath.get(i).getType() == JsonPathElement.Type.LIST_STAR) {
-                clone.set(i, new JsonPathListIndexElement(index));
-            }
-        }
-        return clone;
-    }
-
     /**
-     * Attention: If we specify several projections for a subdocument, only the last one seems to be considered.
+     * Attention: If we specify several projections for a subdocument, only the last one seems to be considered
      * To keep it simple we only project on the highest level of fields.
      */
     private static Document constructProjectionFromColumnMapping(List<MongoColumnMapping> columnsMapping) {
@@ -175,68 +164,69 @@ public class ReadCollectionMapped {
         return projection;
     }
 
-    private static Object getFieldByType(Document doc, List<JsonPathElement> jsonPath, MongoColumnMapping.MongoType type, SchemaEnforcementLevel schemaEnforcementLevel) throws AdapterException {
-        Object curElement = doc;
-        if (jsonPath.isEmpty()) {
-            if (type != DOCUMENT) {
-                throw new AdapterException("The root field '$' is of type DOCUMENT, but was specified as type " + type.name() + " in the mapping.");
-            }
-            return ((Document)curElement).toJson();
+    private static Object getFieldByType(Document doc, List<JsonPathElement> jsonPath, MongoColumnMapping.MongoType expectedMongoType, SchemaEnforcementLevel schemaEnforcementLevel) throws AdapterException {
+        if (jsonPath.isEmpty()) {   // user specified "$" jsonpath
+            return doc.toJson();
         }
+        Object curElement = doc;
         try {
-            JsonPathElement curPathElement = (JsonPathFieldElement) jsonPath.get(0);
-            if (jsonPath.size() > 1) {
-                try {
-                    for (int i = 0; i < jsonPath.size() - 1; i++) {  // TODO Can we simply go to leaf here?
-                        curPathElement = jsonPath.get(i);
-                        if (curPathElement.getType() == JsonPathElement.Type.FIELD) {
-                            curElement = ((Document)curElement).get(((JsonPathFieldElement) curPathElement).getFieldName());
-                        } else if (curPathElement.getType() == JsonPathElement.Type.LIST_INDEX) {
-                            if (((List)curElement).size() <= ((JsonPathListIndexElement) curPathElement).getListIndex()) {
-                                return null;
-                            }
-                            curElement = ((List)curElement).get(((JsonPathListIndexElement) curPathElement).getListIndex());
-                        } else {
-                            throw new RuntimeException("Unsupported path type (" + curPathElement.getType() + "), should never happen");
-                        }
+            JsonPathElement curPathElement;
+            for (int i = 0; i < jsonPath.size(); i++) {
+                curPathElement = jsonPath.get(i);
+                if (curPathElement.getType() == JsonPathElement.Type.FIELD) {
+                    curElement = ((Document)curElement).get(((JsonPathFieldElement) curPathElement).getFieldName());
+                } else if (curPathElement.getType() == JsonPathElement.Type.LIST_INDEX) {
+                    if (((List)curElement).size() <= ((JsonPathListIndexElement) curPathElement).getListIndex()) {
+                        return null;
                     }
-                } catch (NullPointerException ex) {
-                    // Handle only case where nested structure does not exist as specified (not even with different types)
-                    return null;
+                    curElement = ((List)curElement).get(((JsonPathListIndexElement) curPathElement).getListIndex());
+                } else {
+                    throw new RuntimeException("Unsupported path type (" + curPathElement.getType() + "), should never happen");
                 }
-                if (curElement == null) {
-                    return null;  // we would run into an nullpointerexception
-                }
-                curPathElement = ((JsonPathFieldElement) jsonPath.get(jsonPath.size() - 1));
             }
-            if (curPathElement.getType() == JsonPathElement.Type.FIELD) {
-                curElement = ((Document)curElement).get(((JsonPathFieldElement) curPathElement).getFieldName());
-            } else if (curPathElement.getType() == JsonPathElement.Type.LIST_INDEX) {
-                curElement = ((List)curElement).get(((JsonPathListIndexElement) curPathElement).getListIndex());
+            if (!expectedMongoType.getClassFromMongo().isInstance(curElement)) {
+                return tryAutoConvertValue(expectedMongoType, curElement);
             }
-            if (type == MongoColumnMapping.MongoType.OBJECTID) {
-                return ((ObjectId)curElement).toString();
-            } else if (type.isPrimitive()) {
+            if (expectedMongoType == MongoColumnMapping.MongoType.OBJECTID) {
+                return curElement.toString();
+            } else if (expectedMongoType.isPrimitive()) {
                 return curElement;
-            } else {
-                // return as json representation
-                if (type == DOCUMENT) {
+            } else {    // return non-primitive type as json representation
+                if (expectedMongoType == DOCUMENT) {
                     return (curElement == null) ? null : ((Document)curElement).toJson();
-                } else if (type == MongoColumnMapping.MongoType.ARRAY) {
+                } else if (expectedMongoType == MongoColumnMapping.MongoType.ARRAY) {
                     return (curElement == null) ? null : JSON.serialize(curElement);
                 } else {
-                    throw new RuntimeException("Unknown non-primitive mongo type, should never happen: " + type);
+                    throw new RuntimeException("Unknown non-primitive mongo type, should never happen: " + expectedMongoType);
                 }
             }
-        } catch (ClassCastException e) {
-            if (schemaEnforcementLevel == CHECK_TYPE) {
-                throw new AdapterException("Error when retrieving path " + jsonPath + " as type " + type + ": " + e.getMessage());
+        } catch (ClassCastException|NullPointerException e) {
+            return null;
+        } catch (Exception e) {
+            throw new RuntimeException("Unexpected error when retrieving path " + jsonPath + " as type " + expectedMongoType + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static Object tryAutoConvertValue(MongoColumnMapping.MongoType expectedMongoType, Object curElement) {
+        if (expectedMongoType == MongoColumnMapping.MongoType.OBJECTID) {
+            return null;
+        } else if (expectedMongoType.isPrimitive()) {
+            if (expectedMongoType == STRING) {
+                if (curElement instanceof Document) {
+                    return ((Document)curElement).toJson();
+                } else if (curElement instanceof List) {
+                    return JSON.serialize(curElement);
+                }
+                return curElement.toString();
+            } else if (expectedMongoType == DOUBLE && (curElement instanceof Long || curElement instanceof Integer)) {
+                return curElement;
+            } else if (expectedMongoType == LONG && curElement instanceof Integer) {
+                return curElement;
             } else {
                 return null;
             }
-        } catch (Exception e) {
-            throw e;
-            //throw new RuntimeException("Unexpected error when retrieving path " + jsonPath + " as type " + type + ": " + e.getMessage(), e);
+        } else { // document, array, objectid
+            return null;
         }
     }
 

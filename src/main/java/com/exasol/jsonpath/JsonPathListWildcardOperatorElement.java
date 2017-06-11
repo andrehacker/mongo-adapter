@@ -1,9 +1,9 @@
 package com.exasol.jsonpath;
 
 
-public class JsonPathStarOperatorElement implements JsonPathElement {
+public class JsonPathListWildcardOperatorElement implements JsonPathElement {
 
-	public JsonPathStarOperatorElement() {
+	public JsonPathListWildcardOperatorElement() {
 
 	}
 
@@ -14,12 +14,12 @@ public class JsonPathStarOperatorElement implements JsonPathElement {
 
 	@Override
 	public Type getType() {
-		return Type.LIST_STAR;
+		return Type.LIST_WILDCARD;
 	}
 	
 	@Override
 	public boolean equals(Object obj) {
-        if (!(obj instanceof JsonPathStarOperatorElement)) {
+        if (!(obj instanceof JsonPathListWildcardOperatorElement)) {
     	    return false;
         }
         return true;

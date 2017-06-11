@@ -14,7 +14,6 @@ import com.exasol.adapter.sql.SqlStatementSelect;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
-import com.exasol.mongo.MongoMappingParser;
 import com.exasol.utils.JsonHelper;
 import com.google.common.base.Joiner;
 import com.mongodb.MongoClient;
@@ -30,6 +29,11 @@ import static com.exasol.adapter.sql.AggregateFunction.COUNT;
 import static com.exasol.jsonpath.JsonPathElement.Type.LIST_INDEX;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 
+/**
+ * Next steps
+ * - projection pushdown
+ * - schema auto discovery
+ */
 public class MongoAdapter {
 
     public static String adapterCall(ExaMetadata meta, String input) throws Exception {

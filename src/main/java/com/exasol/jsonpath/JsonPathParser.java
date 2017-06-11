@@ -26,7 +26,7 @@ public class JsonPathParser {
 			} else if (matcher.group(2) != null) {
 				path.add(new JsonPathListIndexElement(Integer.parseInt(matcher.group(2))));
 			} else if (matcher.group(3) != null) {
-				path.add(new JsonPathStarOperatorElement());
+				path.add(new JsonPathListWildcardOperatorElement());
 			} else {
 				assert(matcher.group(4) != null);
 				if (matcher.group(4).equals("$")) {

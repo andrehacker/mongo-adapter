@@ -16,15 +16,26 @@ public class MongoAdapterProperties {
     public static final String PROP_MONGO_PORT = "MONGO_PORT";
     public static final String PROP_MONGO_DB = "MONGO_DB";
     public static final String PROP_MODE = "MODE";
+    public static final String PROP_MAPPING = "MAPPING";
     public static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
     public static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
-    public static final String PROP_MAPPING = "MAPPING";
     public static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
 
     private Map<String, String> properties;
 
-    public MongoAdapterProperties(Map<String, String> properties) {
+    public MongoAdapterProperties(Map<String, String> properties) throws AdapterException {
         this.properties = properties;
+        checkPropertyConsistency();
+    }
+
+    private void checkPropertyConsistency() throws AdapterException {
+        getMongoHost();
+        getMongoPort();
+        getMongoDB();
+        if (getMappingMode() == MongoMappingMode.MAPPED) {
+            getMapping();
+        }
+        getSchemaEnforcementLevel();
     }
 
     private String getProperty(String name, String defaultValue) {
@@ -35,13 +46,29 @@ public class MongoAdapterProperties {
         }
     }
 
-    public String getMongoHost() {
-        return getProperty(PROP_MONGO_HOST, "");
+    public String getMongoHost() throws InvalidPropertyException {
+        String host = getProperty(PROP_MONGO_HOST, "");
+        if (host.trim().isEmpty()) {
+            throw new InvalidPropertyException("You have to specify the MongoDB host using the property " + PROP_MONGO_HOST);
+        }
+        return host;
     }
 
-    public int getMongoPort() {
+    public int getMongoPort() throws InvalidPropertyException {
         String port = getProperty(PROP_MONGO_PORT, "");
-        return Integer.parseInt(port);
+        try {
+            return Integer.parseInt(port);
+        } catch (NumberFormatException ex) {
+            throw new InvalidPropertyException("You have to specify the property " + PROP_MONGO_PORT + " and it has to be a valid number.");
+        }
+    }
+
+    public String getMongoDB() throws InvalidPropertyException {
+        String db = getProperty(PROP_MONGO_DB, "");
+        if (db.trim().isEmpty()) {
+            throw new InvalidPropertyException("You have to specify the MongoDB database using the property " + PROP_MONGO_DB);
+        }
+        return db;
     }
 
     public static final int UNLIMITED_RESULT_ROWS = -1;
@@ -56,14 +83,14 @@ public class MongoAdapterProperties {
         MAPPED
     }
 
-    public MongoMappingMode getMappingMode() throws AdapterException {
+    public MongoMappingMode getMappingMode() throws InvalidPropertyException {
         String mode = getProperty(PROP_MODE, "");
         if (mode.equalsIgnoreCase("json")) {
             return MongoMappingMode.JSON;
         } else if (mode.equalsIgnoreCase("mapped")) {
             return MongoMappingMode.MAPPED;
         } else {
-            throw new AdapterException("Unsupported Mode: " + mode);
+            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON' or 'MAPPED'");
         }
     }
 
@@ -72,12 +99,12 @@ public class MongoAdapterProperties {
         /**
          * Ignore if fields do not exist or have a different type than specified in the mapping (i.e. emit null)
          */
-        NONE,
+        NONE;
 
         /**
          * If the field exists, the type must match the type specified in the mapping
          */
-        CHECK_TYPE;
+        // CHECK_TYPE;
 
         /**
          * The fields (structure) defined in the mapping must exist for every document, and must have the specified type
@@ -99,17 +126,17 @@ public class MongoAdapterProperties {
         return SchemaEnforcementLevel.fromString(level);
     }
 
-    public String getMongoDB() {
-        return getProperty(PROP_MONGO_DB, "");
-    }
-
     public boolean getIgnoreCollectionCase() {
         return getProperty(PROP_IGNORE_COLLECTION_CASE, "false").equalsIgnoreCase("true");
     }
 
-    public MongoDBMapping getMapping() throws Exception {
+    public MongoDBMapping getMapping() throws AdapterException {
+        String mapping = getProperty(PROP_MAPPING, "").trim();
+        if (mapping.isEmpty()) {
+            throw new InvalidPropertyException("You have to specify a mapping via the property " + PROP_MAPPING + " because you are using the mapping mode");
+        }
         assert(getMappingMode() == MongoMappingMode.MAPPED);
-        return MongoMappingParser.parse(getProperty(PROP_MAPPING, ""));
+        return MongoMappingParser.parse(mapping);
     }
 
 }

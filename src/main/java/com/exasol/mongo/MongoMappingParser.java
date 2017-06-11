@@ -13,22 +13,21 @@ import java.util.List;
 
 public class MongoMappingParser {
 
-    // TODO parse jsonpath correctly, including $. in https://github.com/EXASOL/hadoop-etl-udfs/blob/master/src/main/java/com/exasol/jsonpath/JsonPathParser.java
-
-    public static MongoDBMapping parse(String json) throws Exception {
+    public static MongoDBMapping parse(String json) throws AdapterException {
         List<MongoCollectionMapping> mappings = new ArrayList<>();
-        JsonObject root = JsonHelper.getJsonObject(json);
+        JsonObject root;
+        try {
+            root = JsonHelper.getJsonObject(json);
         for (JsonObject table : root.getJsonArray("tables").getValuesAs(JsonObject.class)) {
             String collectionName = table.getString("collectionName");
             String tableName = table.getString("tableName", collectionName);
             List<MongoColumnMapping> columnMappings = parseColumnMappings(table.getJsonArray("columns").getValuesAs(JsonObject.class));
             mappings.add(new MongoCollectionMapping(collectionName, tableName, columnMappings));
         }
+        } catch (Exception ex) {
+            throw new AdapterException("Could not parse mapping: " + ex.getMessage());
+        }
         return new MongoDBMapping(mappings);
-    }
-
-    public static List<MongoColumnMapping> parseColumnMappings(String columnMappingsJson) throws Exception {
-        return parseColumnMappings(getJsonArray(columnMappingsJson).getValuesAs(JsonObject.class));
     }
 
     public static List<MongoColumnMapping> parseColumnMappings(List<JsonObject> columns) throws AdapterException {
@@ -40,14 +39,6 @@ public class MongoMappingParser {
             columnMappings.add(new MongoColumnMapping(jsonPath, columnName, mongoType));
         }
         return columnMappings;
-    }
-
-    // TODO COMMON Make public available
-    private static JsonArray getJsonArray(String data) throws Exception {
-        JsonReader jr = Json.createReader(new StringReader(data));
-        JsonArray obj = jr.readArray();
-        jr.close();
-        return obj;
     }
 
 }
