@@ -1,6 +1,9 @@
 package com.exasol.mongo;
 
 
+import com.exasol.adapter.sql.SqlColumn;
+import com.exasol.adapter.sql.SqlNode;
+import com.exasol.adapter.sql.SqlSelectList;
 import com.exasol.jsonpath.JsonPathElement;
 
 import java.util.ArrayList;
@@ -39,14 +42,22 @@ public class MongoCollectionMapping {
         return false;
     }
 
-    public List<Integer> getColumnIndicesWithoutListWildcard() {
+    public List<Integer> getColumnIndicesWithoutListWildcard(SqlSelectList selectList) {
         List<Integer> indices = new ArrayList<>();
-        int i = 0;
-        for (MongoColumnMapping columnMapping : columnMappings) {
-            if (! columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
-                indices.add(i);
+        if (selectList.isSelectStar()) {
+            int i = 0;
+            for (MongoColumnMapping columnMapping : columnMappings) {
+                if (! columnMapping.getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD)) {
+                    indices.add(i);
+                }
+                i++;
             }
-            i++;
+        } else {
+            for (SqlNode expression : selectList.getExpressions()) {
+                SqlColumn column = (SqlColumn) expression;
+                MongoColumnMapping columnMapping = getColumnMappings().stream().filter(mongoColumnMapping -> mongoColumnMapping.getColumnName().equals(column.getName())).findFirst().get();
+                indices.add(getColumnMappings().indexOf(columnMapping));
+            }
         }
         return indices;
     }

@@ -28,6 +28,15 @@ public class MongoAdapterProperties {
         checkPropertyConsistency();
     }
 
+    public static boolean isRefreshNeeded(Map<String, String> newProperties) {
+        return newProperties.containsKey(PROP_MODE)
+                || newProperties.containsKey(PROP_MONGO_HOST)
+                || newProperties.containsKey(PROP_MONGO_PORT)
+                || newProperties.containsKey(PROP_MONGO_DB)
+                || newProperties.containsKey(PROP_MAPPING)
+                || newProperties.containsKey(PROP_IGNORE_COLLECTION_CASE);
+    }
+
     private void checkPropertyConsistency() throws AdapterException {
         getMongoHost();
         getMongoPort();

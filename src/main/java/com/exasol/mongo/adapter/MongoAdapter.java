@@ -7,10 +7,7 @@ import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.json.ResponseJsonSerializer;
 import com.exasol.adapter.metadata.*;
 import com.exasol.adapter.request.*;
-import com.exasol.adapter.sql.SqlFunctionAggregate;
-import com.exasol.adapter.sql.SqlNodeType;
-import com.exasol.adapter.sql.SqlSelectList;
-import com.exasol.adapter.sql.SqlStatementSelect;
+import com.exasol.adapter.sql.*;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
@@ -26,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.exasol.adapter.sql.AggregateFunction.COUNT;
-import static com.exasol.jsonpath.JsonPathElement.Type.LIST_INDEX;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
 
 /**
@@ -82,9 +78,12 @@ public class MongoAdapter {
         return ResponseJsonSerializer.makeCreateVirtualSchemaResponse(remoteMeta);
     }
 
-    private static String handleSetProperty(SetPropertiesRequest request, ExaMetadata meta) {
-        // TODO Check consistency, check if we need to update metadata
-        return ResponseJsonSerializer.makeSetPropertiesResponse(null);
+    private static String handleSetProperty(SetPropertiesRequest request, ExaMetadata meta) throws Exception {
+        SchemaMetadata newMetadata = null;
+        if (MongoAdapterProperties.isRefreshNeeded(request.getProperties())) {
+            newMetadata = readMetadata(request.getSchemaMetadataInfo(), meta);
+        }
+        return ResponseJsonSerializer.makeSetPropertiesResponse(newMetadata);
     }
 
     private static String handleGetCapabilities(GetCapabilitiesRequest request) {
@@ -92,8 +91,10 @@ public class MongoAdapter {
         // TODO Bug: AND is pushed down even though we didn't have the capability (ltt)
         // TODO Bug: Could delete a schema containing an adapter script which was used in a virtual schema (ltt)
         capabilities.supportMainCapability(MainCapability.LIMIT);
+        capabilities.supportMainCapability(MainCapability.ORDER_BY_COLUMN);
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
         capabilities.supportMainCapability(MainCapability.AGGREGATE_SINGLE_GROUP);
+        capabilities.supportMainCapability(MainCapability.SELECTLIST_PROJECTION);
         capabilities.supportMainCapability(MainCapability.SELECTLIST_EXPRESSIONS); // TODO COMMON: Problem: This is required for COUNT(*) pushdown, but I don't want to allow it for other expressions basically! ORDER BY FALSE triggers this too
         capabilities.supportAggregateFunction(AggregateFunctionCapability.COUNT_STAR);
         capabilities.supportPredicate(PredicateCapability.AND);
@@ -129,8 +130,16 @@ public class MongoAdapter {
         if (isCountStar(select.getSelectList())) {
             emitColumns.add("COUNT DECIMAL(36,0)");
         } else {
-            for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
-                emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
+            if (select.getSelectList().isSelectStar()) {
+                for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
+                    emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
+                }
+            } else {
+                for (SqlNode expression : select.getSelectList().getExpressions()) {
+                    SqlColumn column = (SqlColumn)expression;
+                    MongoColumnMapping columnMapping = collectionMapping.getColumnMappings().stream().filter(mongoColumnMapping -> mongoColumnMapping.getColumnName().equals(column.getName())).findFirst().get();
+                    emitColumns.add(columnMapping.getColumnName() + " " + mongoTypeToExasolType(columnMapping.getType()).toString());
+                }
             }
         }
 
@@ -154,7 +163,10 @@ public class MongoAdapter {
                     throw new AdapterException("Unsupported pushdown of aggregate function in select list: " + selectList.toSimpleSql());
                 }
             } else {
-                throw new AdapterException("Unsupported pushdown of select list: " + selectList.toSimpleSql());
+                if (selectList.getExpressions().stream().anyMatch(sqlNode -> !sqlNode.getType().equals(SqlNodeType.COLUMN))) {
+                    throw new AdapterException("Unsupported pushdown of select list: " + selectList.toSimpleSql());
+                }
+                return false;
             }
         }
     }
@@ -181,19 +193,21 @@ public class MongoAdapter {
                 cursor.close();
             }
         } else {  // MAPPED
-            MongoDBMapping mapping = properties.getMapping();
-            for (MongoCollectionMapping collectionMapping : mapping.getCollectionMappings()) {
-                List<ColumnMetadata> columns = new ArrayList<>();
-                for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
-                    if (columnMapping.getJsonPathParsed().stream().anyMatch(element -> element.getType() == LIST_INDEX)) {
-                        throw new AdapterException("Your mapping contains an array index, which is not yet supported.");
-                    }
-                    columns.add(new ColumnMetadata(columnMapping.getColumnName(), "", mongoTypeToExasolType(columnMapping.getType()), true, false, "", ""));
-                }
-                tables.add(new TableMetadata(collectionMapping.getTableName(), "", columns, ""));
-            }
+            tables = getTableMetadataForMapping(properties.getMapping());
         }
         return new SchemaMetadata("", tables);
+    }
+
+    public static List<TableMetadata> getTableMetadataForMapping(MongoDBMapping mapping) throws AdapterException {
+        List<TableMetadata> tables = new ArrayList<>();
+        for (MongoCollectionMapping collectionMapping : mapping.getCollectionMappings()) {
+            List<ColumnMetadata> columns = new ArrayList<>();
+            for (MongoColumnMapping columnMapping : collectionMapping.getColumnMappings()) {
+                columns.add(new ColumnMetadata(columnMapping.getColumnName(), "", mongoTypeToExasolType(columnMapping.getType()), true, false, "", ""));
+            }
+            tables.add(new TableMetadata(collectionMapping.getTableName(), "", columns, ""));
+        }
+        return tables;
     }
 
     private static TableMetadata mapCollectionToSimpleTable(MongoDatabase database, String collectionName, MongoAdapterProperties properties) throws MetadataException {

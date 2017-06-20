@@ -14,13 +14,16 @@ import java.util.List;
 import java.util.Set;
 
 import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Sorts.ascending;
+import static com.mongodb.client.model.Sorts.descending;
+import static com.mongodb.client.model.Sorts.orderBy;
 import static java.util.stream.Collectors.joining;
 
-public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
+public class MongoVisitor implements SqlNodeVisitor<Bson> {
 
     private List<MongoColumnMapping> columnsMapping;
 
-    public MongoFilterGeneratorVisitor(List<MongoColumnMapping> columnsMapping) {
+    public MongoVisitor(List<MongoColumnMapping> columnsMapping) {
         this.columnsMapping = columnsMapping;
     }
 
@@ -93,15 +96,15 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlPredicateEqual sqlPredicateEqual) throws AdapterException {
-        return getEqualNonEqual(sqlPredicateEqual.getLeft(), sqlPredicateEqual.getRight(), false);
+        return getEqualOrNotEqual(sqlPredicateEqual.getLeft(), sqlPredicateEqual.getRight(), false);
     }
 
     @Override
     public Bson visit(SqlPredicateNotEqual sqlPredicateNotEqual) throws AdapterException {
-        return getEqualNonEqual(sqlPredicateNotEqual.getLeft(), sqlPredicateNotEqual.getRight(), true);
+        return getEqualOrNotEqual(sqlPredicateNotEqual.getLeft(), sqlPredicateNotEqual.getRight(), true);
     }
 
-    private Bson getEqualNonEqual(SqlNode left, SqlNode right, boolean notEqual) throws AdapterException {
+    private Bson getEqualOrNotEqual(SqlNode left, SqlNode right, boolean notEqual) throws AdapterException {
         SqlColumn column;
         SqlNode literal;
         if (left.getType() == SqlNodeType.COLUMN) {
@@ -259,6 +262,23 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
         return regex(mongoFilterKey, ((SqlLiteralString)sqlPredicateLikeRegexp.getPattern()).getValue());
     }
 
+    @Override
+    public Bson visit(SqlOrderBy sqlOrderBy) throws AdapterException {
+        List<Bson> mongoOrderBy = new ArrayList<>();
+        for (int i=0; i<sqlOrderBy.getExpressions().size(); i++) {
+            SqlNode node = sqlOrderBy.getExpressions().get(i);
+            if (node.getType() != SqlNodeType.COLUMN) {
+                throw new RuntimeException("sqlOrderBy called for expression " + node.toString() + ". Should never happen");
+            }
+            if (sqlOrderBy.isAscending().get(i)) {
+                mongoOrderBy.add(ascending(getMongoFilterKeyByColumnName(((SqlColumn)node).getName())));
+            } else {
+                mongoOrderBy.add(descending(getMongoFilterKeyByColumnName(((SqlColumn)node).getName())));
+            }
+        }
+        return orderBy(mongoOrderBy);
+    }
+
     /**
      * Handled by the other visit methods where columns can occur.
      */
@@ -359,11 +379,6 @@ public class MongoFilterGeneratorVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlLiteralInterval sqlLiteralInterval) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlOrderBy sqlOrderBy) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 

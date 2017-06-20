@@ -6,14 +6,14 @@ import com.exasol.ExaMetadata;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.json.RequestJsonParser;
 import com.exasol.adapter.request.PushdownRequest;
-import com.exasol.adapter.sql.SqlStatementSelect;
+import com.exasol.adapter.sql.*;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
 import com.exasol.jsonpath.JsonPathListIndexElement;
 import com.exasol.mongo.MongoCollectionMapping;
 import com.exasol.mongo.MongoColumnMapping;
 import com.exasol.mongo.MongoDBMapping;
-import com.exasol.mongo.MongoFilterGeneratorVisitor;
+import com.exasol.mongo.MongoVisitor;
 import com.exasol.mongo.adapter.MongoAdapter;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
 import com.mongodb.MongoClient;
@@ -65,28 +65,32 @@ public class ReadCollectionMapped {
         MongoClient mongoClient = new MongoClient(host, port);
         MongoDatabase database = mongoClient.getDatabase(db);
         MongoCollection<Document> collection = database.getCollection(collectionName);
-        MongoFilterGeneratorVisitor filterGenerator = new MongoFilterGeneratorVisitor(collectionMapping.getColumnMappings());
+        MongoVisitor mongoVisitor = new MongoVisitor(collectionMapping.getColumnMappings());
 
         if (MongoAdapter.isCountStar(select.getSelectList())) {
-            long count = (select.hasFilter()) ? collection.count(select.getWhereClause().accept(filterGenerator)) : collection.count();
+            long count = (select.hasFilter()) ? collection.count(select.getWhereClause().accept(mongoVisitor)) : collection.count();
             iter.emit(count);
         } else {
-            Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings());
+            Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings(), select.getSelectList());
 
             FindIterable<Document> tempCursor = collection.find();
             if (projection != null) {
                 tempCursor = tempCursor.projection(projection);
             }
             if (select.hasFilter()) {
-                tempCursor = tempCursor.filter(select.getWhereClause().accept(filterGenerator));
+                tempCursor = tempCursor.filter(select.getWhereClause().accept(mongoVisitor));
+            }
+            if (select.hasOrderBy()) {
+                tempCursor = tempCursor.sort(select.getOrderBy().accept(mongoVisitor));
             }
             if (maxRows != UNLIMITED_RESULT_ROWS) {
                 tempCursor = tempCursor.limit(maxRows);
             }
             MongoCursor<Document> cursor = tempCursor.iterator();
+            int numColumns = (select.getSelectList().isSelectStar()) ? collectionMapping.getColumnMappings().size() : select.getSelectList().getExpressions().size();
+            List<Integer> simpleColumnIndices = collectionMapping.getColumnIndicesWithoutListWildcard(select.getSelectList());
             if (collectionMapping.hasListWildcard()) {
-                Object row[] = new Object[collectionMapping.getColumnMappings().size()];
-                List<Integer> simpleColumnIndices = collectionMapping.getColumnIndicesWithoutListWildcard();
+                Object row[] = new Object[numColumns];
                 List<Integer> listWildcardColumnIndices = collectionMapping.getColumnIndicesWithListWildcard();
                 List<Integer> listWildcardJsonPathIndices = collectionMapping.getListWildcardJsonPathIndices();
                 try {
@@ -118,12 +122,13 @@ public class ReadCollectionMapped {
                     cursor.close();
                 }
             } else {
-                Object row[] = new Object[collectionMapping.getColumnMappings().size()];
+                Object row[] = new Object[numColumns];
                 try {
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
                         int i = 0;
-                        for (MongoColumnMapping col : collectionMapping.getColumnMappings()) {
+                        for (Integer index : simpleColumnIndices) {
+                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
                             row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                         }
                         iter.emit(row);
@@ -139,18 +144,22 @@ public class ReadCollectionMapped {
      * Attention: If we specify several projections for a subdocument, only the last one seems to be considered
      * To keep it simple we only project on the highest level of fields.
      */
-    private static Document constructProjectionFromColumnMapping(List<MongoColumnMapping> columnsMapping) {
-        Set<String> highestLevelFields = new HashSet<>();
+    private static Document constructProjectionFromColumnMapping(List<MongoColumnMapping> columnsMapping, SqlSelectList selectList) {
+        Set<String> topLevelFieldsSeenBefore = new HashSet<>();
         Document projection = new Document();
         boolean includeId = false;
         for (MongoColumnMapping col : columnsMapping) {
+            if (!selectList.isSelectStar()
+                    && selectList.getExpressions().stream().noneMatch(sqlNode -> sqlNode.getType().equals(SqlNodeType.COLUMN) && ((SqlColumn)sqlNode).getName().equals(col.getColumnName()))) {
+                continue; // column not in projection, i.e. skip
+            }
             List<JsonPathElement> path = col.getJsonPathParsed();
             if (path.size() == 0) {
                 // root element requested, we need all data and thus no projection
                 return null;
             }
-            if (!highestLevelFields.contains(path.get(0))) {
-                highestLevelFields.add(path.get(0).toJsonPathString());
+            if (!topLevelFieldsSeenBefore.contains(path.get(0))) {
+                topLevelFieldsSeenBefore.add(path.get(0).toJsonPathString());
                 String mongoProjection = path.get(0).toJsonPathString();
                 projection.append(mongoProjection, 1);
                 if (mongoProjection.equals("_id")) {
