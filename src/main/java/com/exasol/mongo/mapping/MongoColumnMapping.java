@@ -1,4 +1,4 @@
-package com.exasol.mongo;
+package com.exasol.mongo.mapping;
 
 import com.exasol.adapter.AdapterException;
 import com.exasol.jsonpath.JsonPathElement;
@@ -40,6 +40,10 @@ public class MongoColumnMapping {
 
     public List<JsonPathElement> getJsonPathParsed() {
         return jsonPathParsed;
+    }
+
+    public boolean jsonPathHasListWildcard() {
+        return getJsonPathParsed().stream().anyMatch(jsonPathElement -> jsonPathElement.getType() == JsonPathElement.Type.LIST_WILDCARD);
     }
 
     public String getColumnName() {

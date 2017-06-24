@@ -10,9 +10,9 @@ import com.exasol.adapter.sql.*;
 import com.exasol.jsonpath.JsonPathElement;
 import com.exasol.jsonpath.JsonPathFieldElement;
 import com.exasol.jsonpath.JsonPathListIndexElement;
-import com.exasol.mongo.MongoCollectionMapping;
-import com.exasol.mongo.MongoColumnMapping;
-import com.exasol.mongo.MongoDBMapping;
+import com.exasol.mongo.mapping.MongoCollectionMapping;
+import com.exasol.mongo.mapping.MongoColumnMapping;
+import com.exasol.mongo.mapping.MongoDBMapping;
 import com.exasol.mongo.MongoVisitor;
 import com.exasol.mongo.adapter.MongoAdapter;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
@@ -28,8 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import static com.exasol.mongo.MongoColumnMapping.MongoType.*;
-import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.MAPPED;
+import static com.exasol.mongo.mapping.MongoColumnMapping.MongoType.*;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.SchemaEnforcementLevel;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.UNLIMITED_RESULT_ROWS;
 
@@ -40,6 +39,8 @@ import static com.exasol.mongo.adapter.MongoAdapterProperties.UNLIMITED_RESULT_R
  *
  * https://docs.mongodb.com/manual/tutorial/project-fields-from-query-results/
  * - Return Specific Fields in Embedded Documents: You can return specific fields in an embedded document. Use the dot notation to refer to the embedded field and set to 1 in the projection document.
+ *
+ * Mapping actually very similar to DRDL of MongoDB Connector for BI: https://docs.mongodb.com/bi-connector/master/schema-configuration/
  *
  */
 public class ReadCollectionMapped {
@@ -55,7 +56,7 @@ public class ReadCollectionMapped {
         int port = properties.getMongoPort();
         String db = properties.getMongoDB();
         SqlStatementSelect select = (SqlStatementSelect) request.getSelect();
-        MongoDBMapping mapping = (properties.getMappingMode() == MAPPED) ? properties.getMapping() : MongoDBMapping.constructDefaultMapping(request.getInvolvedTablesMetadata());
+        MongoDBMapping mapping = MongoAdapter.getMappingDuringPushdown(properties, request);
         String tableName = select.getFromClause().getName();
         MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
         String collectionName = collectionMapping.getCollectionName();
@@ -72,7 +73,6 @@ public class ReadCollectionMapped {
             iter.emit(count);
         } else {
             Document projection = constructProjectionFromColumnMapping(collectionMapping.getColumnMappings(), select.getSelectList());
-
             FindIterable<Document> tempCursor = collection.find();
             if (projection != null) {
                 tempCursor = tempCursor.projection(projection);
@@ -88,32 +88,34 @@ public class ReadCollectionMapped {
             }
             MongoCursor<Document> cursor = tempCursor.iterator();
             int numColumns = (select.getSelectList().isSelectStar()) ? collectionMapping.getColumnMappings().size() : select.getSelectList().getExpressions().size();
-            List<Integer> simpleColumnIndices = collectionMapping.getColumnIndicesWithoutListWildcard(select.getSelectList());
-            if (collectionMapping.hasListWildcard()) {
+            MongoCollectionMapping.IndicesCache indices = collectionMapping.computeIndicesCache(select.getSelectList());
+            if (collectionMapping.hasWildcard(select.getSelectList())) { // do something like $unwind manually
                 Object row[] = new Object[numColumns];
-                List<Integer> listWildcardColumnIndices = collectionMapping.getColumnIndicesWithListWildcard();
-                List<Integer> listWildcardJsonPathIndices = collectionMapping.getListWildcardJsonPathIndices();
+                int emittedRows = 0;
                 try {
                     while (cursor.hasNext()) {
+                        if (maxRows != UNLIMITED_RESULT_ROWS && emittedRows >= maxRows) {
+                            break;
+                        }
                         Document doc = cursor.next();
-                        for (Integer index : simpleColumnIndices) {
-                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
-                            row[index] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                        for (int i=0; i<indices.getSimpleColumnIndices().size(); i++) {
+                            MongoColumnMapping col = collectionMapping.getColumnMappings().get(indices.getSimpleColumnIndices().get(i));
+                            row[indices.getSimpleColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                         }
                         boolean foundListElement;
                         int listIndexToInject = 0;
                         do {
                             foundListElement = false;
-                            for (int i=0; i<listWildcardColumnIndices.size(); i++) {
-                                Integer colIndex = listWildcardColumnIndices.get(i);
-                                Integer jsonPathWildcardIndex = listWildcardJsonPathIndices.get(i);
-                                MongoColumnMapping col = collectionMapping.getColumnMappings().get(colIndex);
-                                col.getJsonPathParsed().set(jsonPathWildcardIndex, new JsonPathListIndexElement(listIndexToInject)); // Attention: original parsed path (with wildcard) no longer available afterwards
-                                row[colIndex] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
-                                foundListElement = foundListElement || (row[colIndex] != null);
+                            for (int i=0; i<indices.getWildcardColumnIndices().size(); i++) {
+                                Integer jsonPathWildcardIndex = indices.getWildcardJsonPathIndices().get(i);
+                                MongoColumnMapping col = collectionMapping.getColumnMappings().get(indices.getWildcardColumnIndices().get(i));
+                                col.getJsonPathParsed().set(jsonPathWildcardIndex, new JsonPathListIndexElement(listIndexToInject));    // Attention: original parsed path (with wildcard) no longer available afterwards
+                                row[indices.getWildcardColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                                foundListElement = foundListElement || (row[indices.getWildcardColumnTargetIndices().get(i)] != null);
                             }
-                            if (foundListElement) {
+                            if (foundListElement || listIndexToInject == 0) {
                                 iter.emit(row);
+                                emittedRows++;
                                 listIndexToInject++;
                             }
                         } while (foundListElement);
@@ -121,13 +123,13 @@ public class ReadCollectionMapped {
                 } finally {
                     cursor.close();
                 }
-            } else {
+            } else {  // no list wildcard
                 Object row[] = new Object[numColumns];
                 try {
                     while (cursor.hasNext()) {
                         Document doc = cursor.next();
                         int i = 0;
-                        for (Integer index : simpleColumnIndices) {
+                        for (Integer index : indices.getSimpleColumnIndices()) {
                             MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
                             row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
                         }
@@ -221,7 +223,7 @@ public class ReadCollectionMapped {
             return null;
         } else if (expectedMongoType.isPrimitive()) {
             if (expectedMongoType == STRING) {
-                if (curElement instanceof Document) {
+                if (curElement instanceof Document) { // TODO convenient in some cases, misleading in others -> make configurable
                     return ((Document)curElement).toJson();
                 } else if (curElement instanceof List) {
                     return JSON.serialize(curElement);

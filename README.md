@@ -9,6 +9,7 @@ The adapter has following features
 
 To Be Considered
 * EXASOL cannot distinguish between empty strings '' and NULL. However, in MongoDB a document could either not contain a field, or contain it with empty string. The adapter does not distinguish these two cases. I.e. IS NULL filter means the field does not exist or it exists with empty string. IS NOT NULL means the field exists and has a value different from empty string.
+* Limit with list wildcards: The pushdown to MongoDB will request the specified number of documents, however, only if there are arrays exploded to multiple rows, not all documents might be required (some loaded without purpose)
 
 ## How To Deploy
 

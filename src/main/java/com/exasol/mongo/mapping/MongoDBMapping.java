@@ -1,4 +1,4 @@
-package com.exasol.mongo;
+package com.exasol.mongo.mapping;
 
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.metadata.TableMetadata;
@@ -34,6 +34,7 @@ public class MongoDBMapping {
         List<MongoCollectionMapping> collectionMappings = new ArrayList<>();
         for (TableMetadata tableMetadata : tablesMetadata) {
             List<MongoColumnMapping> columnMappings = new ArrayList<>();
+            columnMappings.add(new MongoColumnMapping("_id", "OBJECTID", MongoColumnMapping.MongoType.OBJECTID));
             columnMappings.add(new MongoColumnMapping("$", "JSON", MongoColumnMapping.MongoType.DOCUMENT));
             MongoCollectionMapping collectionMapping = new MongoCollectionMapping(tableMetadata.getName(), tableMetadata.getName(), columnMappings);
             collectionMappings.add(collectionMapping);

@@ -1,11 +1,11 @@
-package com.exasol.mongo;
+package com.exasol.mongo.mapping;
 
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
 
-public class MongoMappingParserTest {
+public class MongoDBMappingParserTest {
 
     @Test
     public void testParseMongoMapping() throws Exception {
@@ -27,7 +27,7 @@ public class MongoMappingParserTest {
                 "  }\n" +
                 "]\n" +
                 "}";
-        MongoDBMapping mapping = MongoMappingParser.parse(test);
+        MongoDBMapping mapping = MongoDBMappingParser.parse(test);
         assertEquals(1,mapping.getCollectionMappings().size());
         assertEquals("comments",mapping.getCollectionMappings().get(0).getCollectionName());
         assertEquals("comments",mapping.getCollectionMappings().get(0).getTableName());

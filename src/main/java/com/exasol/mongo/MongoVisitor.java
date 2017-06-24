@@ -4,6 +4,10 @@ package com.exasol.mongo;
 import com.exasol.adapter.AdapterException;
 import com.exasol.adapter.sql.*;
 import com.exasol.jsonpath.JsonPathElement;
+import com.exasol.jsonpath.JsonPathFieldElement;
+import com.exasol.jsonpath.JsonPathListIndexElement;
+import com.exasol.mongo.mapping.MongoCollectionMapping;
+import com.exasol.mongo.mapping.MongoColumnMapping;
 import com.google.common.collect.ImmutableSet;
 import org.bson.conversions.Bson;
 
@@ -12,6 +16,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Sorts.ascending;
@@ -30,15 +35,6 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
     // TODO COMMON Would be good to have a supertype SqlLiteral
     private Set<SqlNodeType> supportedLiterals = ImmutableSet.of(SqlNodeType.LITERAL_BOOL, SqlNodeType.LITERAL_DOUBLE, SqlNodeType.LITERAL_EXACTNUMERIC, SqlNodeType.LITERAL_STRING);
 
-    public static MongoColumnMapping getColumnMappingByName(List<MongoColumnMapping> columnsMapping, String columnName) {
-        for (MongoColumnMapping mapping : columnsMapping) {
-            if (mapping.getColumnName().equals(columnName)) {
-                return mapping;
-            }
-        }
-        throw new RuntimeException("Internal error: Could not find mapping for " + columnName);
-    }
-
     /**
      * Given a column name in the virtual table, it returns the key to be used for a filter.
      * If you want to filter a nested document value, e.g. artist.name, will return "artist.name",
@@ -47,14 +43,41 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
      * supported by the Adapter.
      */
     private String getMongoFilterKeyByColumnName(String columnName) {
-        MongoColumnMapping colMapping = getColumnMappingByName(columnsMapping, columnName);
+        MongoColumnMapping colMapping = MongoCollectionMapping.getColumnMappingByName(columnsMapping, columnName);
         // JsonPath could look like "$.fieldname", but projection should look like "fieldname"
-        return colMapping.getJsonPathParsed().stream().map(JsonPathElement::toJsonPathString).collect(joining(".")); //"";
+        return getMongoDotNotationByJsonPath(colMapping.getJsonPathParsed());
+    }
+
+    /**
+     * See https://docs.mongodb.com/manual/core/document/#document-dot-notation for MongoDB dot notation
+     */
+    public static String getMongoDotNotationByJsonPath(List<JsonPathElement> jsonPath) {
+        String mongoDotNotation = "";
+        for (JsonPathElement element : jsonPath) {
+            switch (element.getType()) {
+                case FIELD:
+                    if (!mongoDotNotation.isEmpty()) {
+                        mongoDotNotation += ".";
+                    }
+                    mongoDotNotation += ((JsonPathFieldElement) element).getFieldName();
+                    break;
+                case LIST_INDEX:
+                    if (!mongoDotNotation.isEmpty()) {
+                        mongoDotNotation += ".";
+                    }
+                    mongoDotNotation += "[" + ((JsonPathListIndexElement) element).getListIndex() + "]";
+                    break;
+                case LIST_WILDCARD:
+                    // skipped in MongoDB dot-notation
+                    break;
+            }
+        }
+        return mongoDotNotation;
     }
 
     private Object getLiteralValueForFilter(SqlNode literal) throws AdapterException {
         if (literal.getType() == SqlNodeType.LITERAL_STRING) {
-            // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work. But how do we know which column we filter for here?
+            // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work. Original Mongotype has to be transmitted via column adapter notes, and passed here as arg.
             return ((SqlLiteralString)literal).getValue();
         } else if (literal.getType() == SqlNodeType.LITERAL_BOOL) {
             return ((SqlLiteralBool)literal).getValue();
@@ -250,16 +273,30 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
     }
 
     @Override
-    public Bson visit(SqlPredicateLikeRegexp sqlPredicateLikeRegexp) throws AdapterException {
-        if (sqlPredicateLikeRegexp.getLeft().getType() != SqlNodeType.COLUMN) {
-            throw new RuntimeException("Internal error: Adapter only supports regexp like with column on left side: " + sqlPredicateLikeRegexp.getLeft().getType());
+    public Bson visit(SqlPredicateLike sqlPredicateLike) throws AdapterException {
+        if (sqlPredicateLike.getPattern().getType() != SqlNodeType.LITERAL_STRING) {
+            throw new RuntimeException("Internal error: Adapter only supports like with string as pattern: " + sqlPredicateLike.getPattern().getType());
         }
+        String likePattern = ((SqlLiteralString) sqlPredicateLike.getPattern()).getValue();
+        String regex = Pattern.quote(likePattern).replace("%",".*"); // does not work...
+        return getLikeRegexp(sqlPredicateLike.getLeft(), regex);
+    }
+
+    @Override
+    public Bson visit(SqlPredicateLikeRegexp sqlPredicateLikeRegexp) throws AdapterException {
         if (sqlPredicateLikeRegexp.getPattern().getType() != SqlNodeType.LITERAL_STRING) {
             throw new RuntimeException("Internal error: Adapter only supports regexp like with string as pattern: " + sqlPredicateLikeRegexp.getPattern().getType());
         }
-        SqlColumn column = (SqlColumn) sqlPredicateLikeRegexp.getLeft();
+        return getLikeRegexp(sqlPredicateLikeRegexp.getLeft(), ((SqlLiteralString) sqlPredicateLikeRegexp.getPattern()).getValue());
+    }
+
+    private Bson getLikeRegexp(SqlNode left, String pattern) throws AdapterException {
+        if (left.getType() != SqlNodeType.COLUMN) {
+            throw new RuntimeException("Unsupported left side of Like Regexp: " + left.toString());
+        }
+        SqlColumn column = (SqlColumn) left;
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
-        return regex(mongoFilterKey, ((SqlLiteralString)sqlPredicateLikeRegexp.getPattern()).getValue());
+        return regex(mongoFilterKey, pattern);
     }
 
     @Override
@@ -379,11 +416,6 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
 
     @Override
     public Bson visit(SqlLiteralInterval sqlLiteralInterval) throws AdapterException {
-        throw new RuntimeException("Internal error: visit for this type should never be called");
-    }
-
-    @Override
-    public Bson visit(SqlPredicateLike sqlPredicateLike) throws AdapterException {
         throw new RuntimeException("Internal error: visit for this type should never be called");
     }
 

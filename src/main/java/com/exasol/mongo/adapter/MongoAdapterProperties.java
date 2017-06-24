@@ -2,8 +2,8 @@ package com.exasol.mongo.adapter;
 
 
 import com.exasol.adapter.AdapterException;
-import com.exasol.mongo.MongoDBMapping;
-import com.exasol.mongo.MongoMappingParser;
+import com.exasol.mongo.mapping.MongoDBMapping;
+import com.exasol.mongo.mapping.MongoDBMappingParser;
 
 import java.util.Map;
 
@@ -20,6 +20,7 @@ public class MongoAdapterProperties {
     public static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
     public static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
     public static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
+    public static final String PROP_AUTO_MAPPING_SAMPLE_SIZE = "AUTO_MAPPING_SAMPLE_SIZE";
 
     private Map<String, String> properties;
 
@@ -34,6 +35,7 @@ public class MongoAdapterProperties {
                 || newProperties.containsKey(PROP_MONGO_PORT)
                 || newProperties.containsKey(PROP_MONGO_DB)
                 || newProperties.containsKey(PROP_MAPPING)
+                || newProperties.containsKey(PROP_AUTO_MAPPING_SAMPLE_SIZE)
                 || newProperties.containsKey(PROP_IGNORE_COLLECTION_CASE);
     }
 
@@ -43,6 +45,8 @@ public class MongoAdapterProperties {
         getMongoDB();
         if (getMappingMode() == MongoMappingMode.MAPPED) {
             getMapping();
+        } else if (getMappingMode() == MongoMappingMode.AUTO_MAPPED) {
+            getAutoMappingSampleSize();
         }
         getSchemaEnforcementLevel();
     }
@@ -87,8 +91,18 @@ public class MongoAdapterProperties {
         return Integer.parseInt(maxResultRows);
     }
 
+    public int getAutoMappingSampleSize() throws InvalidPropertyException {
+        String sampleSize = getProperty(PROP_AUTO_MAPPING_SAMPLE_SIZE, "");
+        try {
+            return Integer.parseInt(sampleSize);
+        } catch (NumberFormatException ex) {
+            throw new InvalidPropertyException("You have to specify the property " + PROP_AUTO_MAPPING_SAMPLE_SIZE + " and it has to be a valid number.");
+        }
+    }
+
     public enum MongoMappingMode {
         JSON,   // Single column with whole document as json
+        AUTO_MAPPED,
         MAPPED
     }
 
@@ -98,8 +112,10 @@ public class MongoAdapterProperties {
             return MongoMappingMode.JSON;
         } else if (mode.equalsIgnoreCase("mapped")) {
             return MongoMappingMode.MAPPED;
+        } else if (mode.equalsIgnoreCase("auto_mapped")) {
+            return MongoMappingMode.AUTO_MAPPED;
         } else {
-            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON' or 'MAPPED'");
+            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON', 'AUTO_MAPPED' or 'MAPPED'");
         }
     }
 
@@ -140,12 +156,12 @@ public class MongoAdapterProperties {
     }
 
     public MongoDBMapping getMapping() throws AdapterException {
+        assert(getMappingMode() == MongoMappingMode.MAPPED);
         String mapping = getProperty(PROP_MAPPING, "").trim();
         if (mapping.isEmpty()) {
             throw new InvalidPropertyException("You have to specify a mapping via the property " + PROP_MAPPING + " because you are using the mapping mode");
         }
-        assert(getMappingMode() == MongoMappingMode.MAPPED);
-        return MongoMappingParser.parse(mapping);
+        return MongoDBMappingParser.parse(mapping);
     }
 
 }
