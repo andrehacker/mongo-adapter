@@ -10,6 +10,7 @@ import com.exasol.mongo.mapping.MongoCollectionMapping;
 import com.exasol.mongo.mapping.MongoColumnMapping;
 import com.google.common.collect.ImmutableSet;
 import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -75,9 +76,12 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
         return mongoDotNotation;
     }
 
-    private Object getLiteralValueForFilter(SqlNode literal) throws AdapterException {
+    private Object getLiteralValueForFilter(SqlNode literal, MongoColumnMapping.MongoType mongoType) throws AdapterException {
         if (literal.getType() == SqlNodeType.LITERAL_STRING) {
-            // TODO If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work. Original Mongotype has to be transmitted via column adapter notes, and passed here as arg.
+            // If the filter column is of ObjectId type, this must be a ObjectId! Otherwise filter does not work.
+            if (mongoType == MongoColumnMapping.MongoType.OBJECTID) {
+                return new ObjectId(((SqlLiteralString)literal).getValue());
+            }
             return ((SqlLiteralString)literal).getValue();
         } else if (literal.getType() == SqlNodeType.LITERAL_BOOL) {
             return ((SqlLiteralBool)literal).getValue();
@@ -144,10 +148,15 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
         }
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         if (notEqual) {
-            return ne(mongoFilterKey, getLiteralValueForFilter(literal));
+            return ne(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         } else {
-            return eq(mongoFilterKey, getLiteralValueForFilter(literal));
+            return eq(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         }
+    }
+
+    private MongoColumnMapping.MongoType getMongoType(SqlColumn column) throws AdapterException {
+        String adapterNotes = column.getMetadata().getAdapterNotes();
+        return MongoColumnMapping.MongoType.fromString(adapterNotes);
     }
 
     @Override
@@ -170,9 +179,9 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
         }
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         if (!invert) {
-            return lt(mongoFilterKey, getLiteralValueForFilter(literal));
+            return lt(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         } else {
-            return gt(mongoFilterKey, getLiteralValueForFilter(literal));
+            return gt(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         }
     }
 
@@ -196,9 +205,9 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
         }
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         if (!invert) {
-            return lte(mongoFilterKey, getLiteralValueForFilter(literal));
+            return lte(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         } else {
-            return gte(mongoFilterKey, getLiteralValueForFilter(literal));
+            return gte(mongoFilterKey, getLiteralValueForFilter(literal, getMongoType(column)));
         }
     }
 
@@ -230,7 +239,7 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         SqlNode left = sqlPredicateBetween.getBetweenLeft();
         SqlNode right = sqlPredicateBetween.getBetweenRight();
-        return and(gte(mongoFilterKey, getLiteralValueForFilter(left)), lte(mongoFilterKey, getLiteralValueForFilter(right)));
+        return and(gte(mongoFilterKey, getLiteralValueForFilter(left, getMongoType(column))), lte(mongoFilterKey, getLiteralValueForFilter(right, getMongoType(column))));
     }
 
     @Override
@@ -244,10 +253,10 @@ public class MongoVisitor implements SqlNodeVisitor<Bson> {
             throw new RuntimeException("Internal error: In with non-column expression should never be called: " + sqlPredicateInConstList.getExpression().getType());
         }
         List<Object> inArgs = new ArrayList<>();
-        for (SqlNode node : sqlPredicateInConstList.getInArguments()) {
-            inArgs.add(getLiteralValueForFilter(node));
-        }
         SqlColumn column = (SqlColumn) sqlPredicateInConstList.getExpression();
+        for (SqlNode node : sqlPredicateInConstList.getInArguments()) {
+            inArgs.add(getLiteralValueForFilter(node, getMongoType(column)));
+        }
         String mongoFilterKey = getMongoFilterKeyByColumnName(column.getName());
         return in(mongoFilterKey, inArgs);
     }

@@ -16,6 +16,7 @@ import com.exasol.mongo.mapping.MongoDBMapping;
 import com.exasol.mongo.MongoVisitor;
 import com.exasol.mongo.adapter.MongoAdapter;
 import com.exasol.mongo.adapter.MongoAdapterProperties;
+import com.exasol.mongo.sql.SqlHelper;
 import com.mongodb.MongoClient;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
@@ -56,6 +57,12 @@ public class ReadCollectionMapped {
         int port = properties.getMongoPort();
         String db = properties.getMongoDB();
         SqlStatementSelect select = (SqlStatementSelect) request.getSelect();
+        if (select.getSelectList().isRequestAnyColumn()) {
+            select = SqlHelper.replaceRequestAnyColumnByFirstColumn(select);
+        }
+        if (SqlHelper.isPushUpNeeded(select)) {
+            select = SqlHelper.pushUpSelectListExpressions(select);
+        }
         MongoDBMapping mapping = MongoAdapter.getMappingDuringPushdown(properties, request);
         String tableName = select.getFromClause().getName();
         MongoCollectionMapping collectionMapping = mapping.getCollectionMappingByTableName(tableName);
@@ -68,7 +75,7 @@ public class ReadCollectionMapped {
         MongoCollection<Document> collection = database.getCollection(collectionName);
         MongoVisitor mongoVisitor = new MongoVisitor(collectionMapping.getColumnMappings());
 
-        if (MongoAdapter.isCountStar(select.getSelectList())) {
+        if (SqlHelper.isCountStar(select.getSelectList())) {
             long count = (select.hasFilter()) ? collection.count(select.getWhereClause().accept(mongoVisitor)) : collection.count();
             iter.emit(count);
         } else {
@@ -100,7 +107,7 @@ public class ReadCollectionMapped {
                         Document doc = cursor.next();
                         for (int i=0; i<indices.getSimpleColumnIndices().size(); i++) {
                             MongoColumnMapping col = collectionMapping.getColumnMappings().get(indices.getSimpleColumnIndices().get(i));
-                            row[indices.getSimpleColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                            row[indices.getSimpleColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getMongoType(), schemaEnforcementLevel);
                         }
                         boolean foundListElement;
                         int listIndexToInject = 0;
@@ -110,7 +117,7 @@ public class ReadCollectionMapped {
                                 Integer jsonPathWildcardIndex = indices.getWildcardJsonPathIndices().get(i);
                                 MongoColumnMapping col = collectionMapping.getColumnMappings().get(indices.getWildcardColumnIndices().get(i));
                                 col.getJsonPathParsed().set(jsonPathWildcardIndex, new JsonPathListIndexElement(listIndexToInject));    // Attention: original parsed path (with wildcard) no longer available afterwards
-                                row[indices.getWildcardColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                                row[indices.getWildcardColumnTargetIndices().get(i)] = getFieldByType(doc, col.getJsonPathParsed(), col.getMongoType(), schemaEnforcementLevel);
                                 foundListElement = foundListElement || (row[indices.getWildcardColumnTargetIndices().get(i)] != null);
                             }
                             if (foundListElement || listIndexToInject == 0) {
@@ -131,7 +138,7 @@ public class ReadCollectionMapped {
                         int i = 0;
                         for (Integer index : indices.getSimpleColumnIndices()) {
                             MongoColumnMapping col = collectionMapping.getColumnMappings().get(index);
-                            row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getType(), schemaEnforcementLevel);
+                            row[i++] = getFieldByType(doc, col.getJsonPathParsed(), col.getMongoType(), schemaEnforcementLevel);
                         }
                         iter.emit(row);
                     }

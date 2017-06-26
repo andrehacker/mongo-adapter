@@ -1,6 +1,5 @@
 package com.exasol.mongo.mapping;
 
-import com.exasol.adapter.capabilities.*;
 import com.exasol.utils.JsonHelper;
 
 import javax.json.JsonArrayBuilder;
@@ -36,7 +35,7 @@ public class MongoDBMappingSerializer {
         JsonObjectBuilder builder = factory.createObjectBuilder();
         builder.add("jsonPath", columnMapping.getJsonPath());
         builder.add("columnName", columnMapping.getColumnName());
-        builder.add("mongoType", columnMapping.getType().toString());
+        builder.add("mongoType", columnMapping.getMongoType().toString());
         return builder;
     }
 }

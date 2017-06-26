@@ -54,7 +54,7 @@ public class DeriveSchemaNodeTest {
         }
         List<MongoColumnMapping> columnMappings = root.mergeCompatibleAndGetBestCollectionMapping();
         for (MongoColumnMapping columnMapping : columnMappings) {
-            System.out.println("- Mapping: jsonPath: " + columnMapping.getJsonPath() + " columnName: " + columnMapping.getColumnName().toString() + " Type: " + columnMapping.getType());
+            System.out.println("- Mapping: jsonPath: " + columnMapping.getJsonPath() + " columnName: " + columnMapping.getColumnName().toString() + " Type: " + columnMapping.getMongoType());
         }
     }
 

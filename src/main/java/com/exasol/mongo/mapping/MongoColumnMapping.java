@@ -50,7 +50,7 @@ public class MongoColumnMapping {
         return columnName;
     }
 
-    public MongoType getType() {
+    public MongoType getMongoType() {
         return type;
     }
 

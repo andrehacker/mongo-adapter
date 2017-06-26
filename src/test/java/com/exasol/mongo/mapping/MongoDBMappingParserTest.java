@@ -34,7 +34,7 @@ public class MongoDBMappingParserTest {
         assertEquals(2 ,mapping.getCollectionMappings().get(0).getColumnMappings().size());
         assertEquals("author" ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getJsonPath());
         assertEquals("author_renamed" ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getColumnName());
-        assertEquals(MongoColumnMapping.MongoType.STRING ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getType());
+        assertEquals(MongoColumnMapping.MongoType.STRING ,mapping.getCollectionMappings().get(0).getColumnMappings().get(0).getMongoType());
     }
 
 }
