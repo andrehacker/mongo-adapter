@@ -125,7 +125,7 @@ public class ReadCollectionMapped {
                                 emittedRows++;
                                 listIndexToInject++;
                             }
-                        } while (foundListElement);
+                        } while (foundListElement && (maxRows == UNLIMITED_RESULT_ROWS || emittedRows < maxRows));
                     }
                 } finally {
                     cursor.close();

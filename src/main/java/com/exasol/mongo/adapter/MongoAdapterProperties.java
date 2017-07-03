@@ -5,6 +5,9 @@ import com.exasol.adapter.AdapterException;
 import com.exasol.mongo.mapping.MongoDBMapping;
 import com.exasol.mongo.mapping.MongoDBMappingParser;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,6 +24,7 @@ public class MongoAdapterProperties {
     public static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
     public static final String PROP_SCHEMA_ENFORCEMENT = "SCHEMA_ENFORCEMENT";
     public static final String PROP_AUTO_MAPPING_SAMPLE_SIZE = "AUTO_MAPPING_SAMPLE_SIZE";
+    public static final String PROP_AUTO_MAPPING_IGNORED_COLUMN_PATHS = "AUTO_MAPPING_IGNORED_COLUMN_PATHS";
 
     private Map<String, String> properties;
 
@@ -36,7 +40,8 @@ public class MongoAdapterProperties {
                 || newProperties.containsKey(PROP_MONGO_DB)
                 || newProperties.containsKey(PROP_MAPPING)
                 || newProperties.containsKey(PROP_AUTO_MAPPING_SAMPLE_SIZE)
-                || newProperties.containsKey(PROP_IGNORE_COLLECTION_CASE);
+                || newProperties.containsKey(PROP_IGNORE_COLLECTION_CASE)
+                || newProperties.containsKey(PROP_AUTO_MAPPING_IGNORED_COLUMN_PATHS);
     }
 
     private void checkPropertyConsistency() throws AdapterException {
@@ -97,6 +102,19 @@ public class MongoAdapterProperties {
             return Integer.parseInt(sampleSize);
         } catch (NumberFormatException ex) {
             throw new InvalidPropertyException("You have to specify the property " + PROP_AUTO_MAPPING_SAMPLE_SIZE + " and it has to be a valid number.");
+        }
+    }
+
+    public List<String> getAutoMappingIgnoredColumnPaths() throws InvalidPropertyException {
+        String columnPathsToIgnore = getProperty(PROP_AUTO_MAPPING_IGNORED_COLUMN_PATHS, "");
+        try {
+            if (columnPathsToIgnore.trim().isEmpty()) {
+                return new ArrayList<>();
+            } else {
+                return Arrays.asList(columnPathsToIgnore.split(","));
+            }
+        } catch (NumberFormatException ex) {
+            throw new InvalidPropertyException("You specified an invalid value for property " + PROP_AUTO_MAPPING_IGNORED_COLUMN_PATHS + ". Should be a comma-separated list of path prefixes to ignore in auto mapping.");
         }
     }
 

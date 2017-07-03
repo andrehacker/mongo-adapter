@@ -24,7 +24,7 @@ public class MongoAdapterTest
             }
         });
         SchemaMetadataInfo info = new SchemaMetadataInfo("mongo-test", "", properties);
-        SchemaMetadata metadata = MongoAdapter.readMetadata(info, null);
-        System.out.println("Schema Metadata: " + metadata.getTables());
+        //SchemaMetadata metadata = MongoAdapter.readMetadata(info, null);
+        //System.out.println("Schema Metadata: " + metadata.getTables());
     }
 }

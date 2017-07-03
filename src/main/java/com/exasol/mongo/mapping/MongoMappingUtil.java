@@ -9,7 +9,7 @@ import java.util.List;
 public class MongoMappingUtil {
 
     // EXASOL does not allow column names like "field1.subfield1", so we need any other separator
-    private static final String SEPARATOR_STRING = "--";
+    private static final String SEPARATOR_STRING = "-";
 
     public static String getAutoMappedColumnNameForJsonPath(List<JsonPathElement> jsonPath) {
         String pathString = "";

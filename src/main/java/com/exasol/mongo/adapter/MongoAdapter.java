@@ -18,7 +18,9 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.AUTO_MAPPED;
 import static com.exasol.mongo.adapter.MongoAdapterProperties.MongoMappingMode.JSON;
@@ -45,9 +47,8 @@ public class MongoAdapter {
                     result = ResponseJsonSerializer.makeDropVirtualSchemaResponse();
                     break;
                 case REFRESH:
-                    throw new AdapterException("Refreshing not yet supported");
-                    //result = handleRefresh((RefreshRequest)request, meta);
-                    //break;
+                    result = handleRefresh((RefreshRequest)request, meta);
+                    break;
                 case SET_PROPERTIES:
                     result = handleSetProperty((SetPropertiesRequest)request, meta);
                     break;
@@ -73,27 +74,55 @@ public class MongoAdapter {
     }
 
     private static String handleCreateVirtualSchema(CreateVirtualSchemaRequest request, ExaMetadata meta) throws Exception {
-        SchemaMetadata remoteMeta = readMetadata(request.getSchemaMetadataInfo(), meta);
+        MongoAdapterProperties properties = new MongoAdapterProperties(request.getSchemaMetadataInfo().getProperties());
+        SchemaMetadata remoteMeta = readMetadata(properties, meta);
         return ResponseJsonSerializer.makeCreateVirtualSchemaResponse(remoteMeta);
+    }
+
+    private static String handleRefresh(RefreshRequest request, ExaMetadata meta) throws Exception {
+        MongoAdapterProperties properties = new MongoAdapterProperties(request.getSchemaMetadataInfo().getProperties());
+        SchemaMetadata newMetadata = readMetadata(properties, meta);
+        return ResponseJsonSerializer.makeRefreshResponse(newMetadata);
     }
 
     private static String handleSetProperty(SetPropertiesRequest request, ExaMetadata meta) throws Exception {
         SchemaMetadata newMetadata = null;
+        Map<String, String> newProperties = getNewProperties(request.getSchemaMetadataInfo().getProperties(), request.getProperties());
         if (MongoAdapterProperties.isRefreshNeeded(request.getProperties())) {
-            newMetadata = readMetadata(request.getSchemaMetadataInfo(), meta);
+            newMetadata = readMetadata(new MongoAdapterProperties(newProperties), meta);
         }
         return ResponseJsonSerializer.makeSetPropertiesResponse(newMetadata);
     }
 
+    /**
+     * Returns the properties as they would be after successfully applying the changes to the existing (old) set of properties.
+     */
+    public static Map<String, String> getNewProperties (
+            Map<String, String> oldProperties, Map<String, String> changedProperties) {
+        Map<String, String> newCompleteProperties = new HashMap<>(oldProperties);
+        for (Map.Entry<String, String> changedProperty : changedProperties.entrySet()) {
+            if (changedProperty.getValue() == null) {
+                // Null values represent properties which are deleted by the user (might also have never existed actually)
+                newCompleteProperties.remove(changedProperty.getKey());
+            } else {
+                newCompleteProperties.put(changedProperty.getKey(), changedProperty.getValue());
+            }
+        }
+        return newCompleteProperties;
+    }
+
     private static String handleGetCapabilities(GetCapabilitiesRequest request) {
         Capabilities capabilities = new Capabilities();
-        capabilities.supportMainCapability(MainCapability.ORDER_BY_COLUMN);
-        capabilities.supportMainCapability(MainCapability.LIMIT);
+
         capabilities.supportMainCapability(MainCapability.SELECTLIST_PROJECTION);
         capabilities.supportMainCapability(MainCapability.SELECTLIST_EXPRESSIONS);      // TODO COMMON: Problem: This is required for COUNT(*) pushdown, but I don't want to allow it for other expressions basically! ORDER BY FALSE triggers this too
         capabilities.supportMainCapability(MainCapability.FILTER_EXPRESSIONS);
         capabilities.supportMainCapability(MainCapability.AGGREGATE_SINGLE_GROUP);
+        capabilities.supportMainCapability(MainCapability.ORDER_BY_COLUMN);
+        capabilities.supportMainCapability(MainCapability.LIMIT);
+
         capabilities.supportAggregateFunction(AggregateFunctionCapability.COUNT_STAR);
+
         capabilities.supportPredicate(PredicateCapability.AND);
         capabilities.supportPredicate(PredicateCapability.OR);
         capabilities.supportPredicate(PredicateCapability.NOT);
@@ -107,11 +136,13 @@ public class MongoAdapter {
         capabilities.supportPredicate(PredicateCapability.IS_NOT_NULL);
         capabilities.supportPredicate(PredicateCapability.REGEXP_LIKE);
         // capabilities.supportPredicate(PredicateCapability.LIKE);  // no "LIKE" in MongoDB, only regex operator. However, not trivial to simulate via regexp
+
         capabilities.supportLiteral(LiteralCapability.BOOL);
         capabilities.supportLiteral(LiteralCapability.STRING);
         capabilities.supportLiteral(LiteralCapability.DOUBLE);
         // TODO DECIMAL is not fully supported, because mongo integers range only to 32bit. We should handle larger values somehow.
         capabilities.supportLiteral(LiteralCapability.EXACTNUMERIC);
+
         return ResponseJsonSerializer.makeGetCapabilitiesResponse(capabilities);
     }
 
@@ -177,8 +208,7 @@ public class MongoAdapter {
         }
     }
 
-    public static SchemaMetadata readMetadata(SchemaMetadataInfo schemaMetadataInfo, ExaMetadata meta) throws Exception {
-        MongoAdapterProperties properties = new MongoAdapterProperties(schemaMetadataInfo.getProperties());
+    public static SchemaMetadata readMetadata(MongoAdapterProperties properties, ExaMetadata meta) throws Exception {
         String host = properties.getMongoHost();
         int port = properties.getMongoPort();
         String db = properties.getMongoDB();
@@ -189,31 +219,43 @@ public class MongoAdapter {
         List<TableMetadata> tables;
         String schemaAdapterNotes = "";
         if (properties.getMappingMode() == JSON) {
+            List<String> collectionNames = new ArrayList<>();
             List<MongoCollectionMapping> collectionMappings = new ArrayList<>();
             MongoCursor<String> cursor = database.listCollectionNames().iterator();
             try {
                 while (cursor.hasNext()) {
-                    String collectionName = cursor.next();
-                    String tableName = collectionName;
-                    List<MongoColumnMapping> columnMappings = new ArrayList<>();
-                    columnMappings.add(new MongoColumnMapping("_id", "OBJECTID", MongoColumnMapping.MongoType.OBJECTID));
-                    columnMappings.add(new MongoColumnMapping("$", "JSON", MongoColumnMapping.MongoType.DOCUMENT));
-                    collectionMappings.add(new MongoCollectionMapping(collectionName, tableName, columnMappings));
+                    collectionNames.add(cursor.next());
                 }
             } finally {
                 cursor.close();
+            }
+            for (final String collectionName : collectionNames) {
+                String tableName = collectionName;
+                if (properties.getIgnoreCollectionCase()) {
+                    if (isCollectionNameUnambiguous(collectionNames, collectionName)) {
+                        tableName = tableName.toUpperCase();
+                    }
+                }
+                List<MongoColumnMapping> columnMappings = new ArrayList<>();
+                columnMappings.add(new MongoColumnMapping("_id", "OBJECTID", MongoColumnMapping.MongoType.OBJECTID));
+                columnMappings.add(new MongoColumnMapping("$", "JSON", MongoColumnMapping.MongoType.DOCUMENT));
+                collectionMappings.add(new MongoCollectionMapping(collectionName, tableName, columnMappings));
             }
             MongoDBMapping mapping = new MongoDBMapping(collectionMappings);
             tables = getTableMetadataForMapping(mapping);
             schemaAdapterNotes = MongoDBMappingSerializer.serialize(mapping);
         } else if (properties.getMappingMode() == AUTO_MAPPED) {
-            MongoDBMapping mapping = DeriveSchema.deriveSchema(properties);
+            MongoDBMapping mapping = DeriveSchema.deriveSchema(properties, properties.getIgnoreCollectionCase());
             tables = getTableMetadataForMapping(mapping);
             schemaAdapterNotes = MongoDBMappingSerializer.serialize(mapping);
         } else {    // MAPPED
             tables = getTableMetadataForMapping(properties.getMapping());
         }
         return new SchemaMetadata(schemaAdapterNotes, tables);
+    }
+
+    public static boolean isCollectionNameUnambiguous(List<String> collectionNames, String collectionName) {
+        return collectionNames.stream().filter(name -> name.equalsIgnoreCase(collectionName)).count() == 1;
     }
 
     public static List<TableMetadata> getTableMetadataForMapping(MongoDBMapping mapping) throws AdapterException {

@@ -81,7 +81,7 @@
             <configuration>
               <artifactSet>
                   <excludes>
-                      <exclude>com.exasol:mongo-adapter</exclude>
+                      <!--<exclude>com.exasol:mongo-adapter</exclude>-->
                   </excludes>
               </artifactSet>
             </configuration>
