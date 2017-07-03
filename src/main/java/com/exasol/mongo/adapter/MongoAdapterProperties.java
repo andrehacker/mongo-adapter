@@ -18,7 +18,7 @@ public class MongoAdapterProperties {
     public static final String PROP_MONGO_HOST = "MONGO_HOST";
     public static final String PROP_MONGO_PORT = "MONGO_PORT";
     public static final String PROP_MONGO_DB = "MONGO_DB";
-    public static final String PROP_MODE = "MODE";
+    public static final String PROP_MODE = "MAPPING_MODE";
     public static final String PROP_MAPPING = "MAPPING";
     public static final String PROP_IGNORE_COLLECTION_CASE = "IGNORE_COLLECTION_CASE";
     public static final String PROP_MAX_RESULT_ROWS = "MAX_RESULT_ROWS";
@@ -128,12 +128,12 @@ public class MongoAdapterProperties {
         String mode = getProperty(PROP_MODE, "");
         if (mode.equalsIgnoreCase("json")) {
             return MongoMappingMode.JSON;
-        } else if (mode.equalsIgnoreCase("mapped")) {
+        } else if (mode.equalsIgnoreCase("manual")) {
             return MongoMappingMode.MAPPED;
-        } else if (mode.equalsIgnoreCase("auto_mapped")) {
+        } else if (mode.equalsIgnoreCase("automatic")) {
             return MongoMappingMode.AUTO_MAPPED;
         } else {
-            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON', 'AUTO_MAPPED' or 'MAPPED'");
+            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON', 'AUTOMATIC' or 'MANUAL'");
         }
     }
 
