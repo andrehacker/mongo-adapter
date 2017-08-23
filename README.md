@@ -42,13 +42,11 @@ CREATE SCHEMA IF NOT EXISTS MONGO_ADAPTER;
 CREATE OR REPLACE JAVA ADAPTER SCRIPT MONGO_ADAPTER AS
 %scriptclass com.exasol.mongo.adapter.MongoAdapter;
 %jar /buckets/bfsdefault/mongo/mongo-adapter-1.0-SNAPSHOT.jar;
-%jar /buckets/bfsdefault/mongo/original-mongo-adapter-1.0-SNAPSHOT.jar;
 /
 
 CREATE OR REPLACE JAVA SET SCRIPT READ_COLLECTION_MAPPED (request varchar(2000000)) EMITS (...) AS
 %scriptclass com.exasol.mongo.scriptclasses.ReadCollectionMapped;
 %jar /buckets/bfsdefault/mongo/mongo-adapter-1.0-SNAPSHOT.jar;
-%jar /buckets/bfsdefault/mongo/original-mongo-adapter-1.0-SNAPSHOT.jar;
 /
 ```
 
