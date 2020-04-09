@@ -133,7 +133,7 @@ public class MongoAdapterProperties {
         } else if (mode.equalsIgnoreCase("automatic")) {
             return MongoMappingMode.AUTO_MAPPED;
         } else {
-            throw new InvalidPropertyException("You have to specify the " + PROP_MAPPING + " with the value either 'JSON', 'AUTOMATIC' or 'MANUAL'");
+            throw new InvalidPropertyException("You have to specify the " + PROP_MODE + " property with the value either 'JSON', 'AUTOMATIC' or 'MANUAL'");
         }
     }
 
